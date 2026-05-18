@@ -218,6 +218,7 @@ function navigateTo(section) {
     btn.style.display = 'none';
   }
   renderSection(section);
+  updateNotifBadge();
 }
 
 function renderSection(section) {
@@ -1588,6 +1589,86 @@ function delReview(id) {
 }
 
 
+/* ===== NOTIFICATIONS ===== */
+function buildNotifications() {
+  const today = new Date().toISOString().slice(0, 10);
+  const notifs = [];
+
+  const overdue = S.tasks.filter(t => t.col !== 'done' && t.due && t.due < today);
+  if (overdue.length) notifs.push({
+    icon: 'bx-error-circle', color: 'red',
+    title: `${overdue.length} tarefa${overdue.length > 1 ? 's' : ''} vencida${overdue.length > 1 ? 's' : ''}`,
+    desc: overdue.slice(0, 2).map(t => t.title).join(', ') + (overdue.length > 2 ? ` +${overdue.length - 2}` : ''),
+    section: 'tasks'
+  });
+
+  const dueToday = S.tasks.filter(t => t.col !== 'done' && t.due === today);
+  if (dueToday.length) notifs.push({
+    icon: 'bx-calendar-check', color: 'amber',
+    title: `${dueToday.length} tarefa${dueToday.length > 1 ? 's' : ''} para hoje`,
+    desc: dueToday.slice(0, 2).map(t => t.title).join(', ') + (dueToday.length > 2 ? ` +${dueToday.length - 2}` : ''),
+    section: 'tasks'
+  });
+
+  const pendingHabits = S.habits.filter(h => !h.completions.includes(today));
+  if (pendingHabits.length) notifs.push({
+    icon: 'bx-calendar-x', color: 'blue',
+    title: `${pendingHabits.length} hábito${pendingHabits.length > 1 ? 's' : ''} pendente${pendingHabits.length > 1 ? 's' : ''} hoje`,
+    desc: pendingHabits.slice(0, 2).map(h => h.name).join(', ') + (pendingHabits.length > 2 ? ` +${pendingHabits.length - 2}` : ''),
+    section: 'habits'
+  });
+
+  const atRisk = S.goals.filter(g => g.status === 'Em risco');
+  if (atRisk.length) notifs.push({
+    icon: 'bx-target-lock', color: 'purple',
+    title: `${atRisk.length} meta${atRisk.length > 1 ? 's' : ''} em risco`,
+    desc: atRisk.map(g => g.objective).join(', '),
+    section: 'goals'
+  });
+
+  return notifs;
+}
+
+function updateNotifBadge() {
+  const badge = document.getElementById('notifBadge');
+  if (!badge) return;
+  const n = buildNotifications().length;
+  badge.textContent = n;
+  badge.style.display = n ? 'flex' : 'none';
+}
+
+function renderNotifPanel() {
+  const notifs = buildNotifications();
+  const list   = document.getElementById('notifList');
+  const count  = document.getElementById('notifCount');
+  count.textContent = notifs.length;
+
+  if (!notifs.length) {
+    list.innerHTML = `<div class="notif-empty"><i class='bx bx-check-circle'></i><p>Tudo em dia!</p></div>`;
+    return;
+  }
+  list.innerHTML = notifs.map(n => `
+    <div class="notif-item notif-${n.color}" onclick="navigateTo('${n.section}');closeNotifPanel()">
+      <div class="notif-item-icon"><i class='bx ${n.icon}'></i></div>
+      <div class="notif-item-body">
+        <div class="notif-item-title">${n.title}</div>
+        <div class="notif-item-desc">${escHtml(n.desc)}</div>
+      </div>
+      <i class='bx bx-chevron-right notif-item-arrow'></i>
+    </div>`).join('');
+}
+
+function toggleNotifPanel() {
+  const panel = document.getElementById('notifPanel');
+  if (panel.classList.contains('open')) { closeNotifPanel(); return; }
+  renderNotifPanel();
+  panel.classList.add('open');
+}
+
+function closeNotifPanel() {
+  document.getElementById('notifPanel').classList.remove('open');
+}
+
 /* ===== EVENT LISTENERS ===== */
 function bindEvents() {
   // Sidebar navigation
@@ -1667,6 +1748,15 @@ function bindEvents() {
   // Global search
   document.getElementById('globalSearch').addEventListener('input', () => {
     renderSection(S.section);
+  });
+
+  // Notifications
+  document.getElementById('notifBtn').addEventListener('click', e => {
+    e.stopPropagation();
+    toggleNotifPanel();
+  });
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#notifWrap')) closeNotifPanel();
   });
 }
 
