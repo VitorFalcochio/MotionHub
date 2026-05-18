@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Motion Hub</title>
+  <link rel="icon" type="image/png" href="4.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- Login Screen -->
+<div class="login-screen" id="loginScreen">
+  <div class="login-card">
+    <div class="login-logo">
+      <img src="3.png" alt="motion." class="login-logo-img">
+    </div>
+    <h2 class="login-title">Bem-vindo de volta</h2>
+    <p class="login-sub">Acesse seu workspace pessoal</p>
+    <div class="form-group">
+      <label class="form-label">E-mail</label>
+      <input type="email" class="form-input" id="loginEmail" placeholder="seu@email.com" autocomplete="email">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Senha</label>
+      <input type="password" class="form-input" id="loginPassword" placeholder="••••••••" autocomplete="current-password">
+      <div class="login-error" id="loginError"><i class='bx bx-error-circle'></i></div>
+    </div>
+    <button class="btn-primary login-btn" id="loginBtn">
+      <i class='bx bx-log-in-circle'></i> Entrar
+    </button>
+  </div>
+</div>
+
+<!-- Loading Screen -->
+<div class="loader-screen" id="loaderScreen" style="display:none">
+  <div class="loader-logo-wrap">
+    <img src="3.png" alt="motion." class="loader-logo-img">
+  </div>
+  <div class="loader-bar-track">
+    <div class="loader-bar-fill"></div>
+  </div>
+</div>
+
+<div class="app">
+
+  <!-- Sidebar -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-icon">
+        <img src="2.png" alt="m." class="logo-mark">
+      </div>
+      <div class="brand-full">
+        <img src="1.png" alt="motion." class="logo-wordmark">
+        <span class="brand-tag">Workspace</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-label">Principal</div>
+      <a class="nav-item active" data-section="dashboard">
+        <i class='bx bxs-dashboard'></i><span>Dashboard</span>
+      </a>
+      <a class="nav-item" data-section="projects">
+        <i class='bx bx-folder-open'></i><span>Projetos</span>
+      </a>
+      <a class="nav-item" data-section="tasks">
+        <i class='bx bx-check-square'></i><span>Tarefas</span>
+      </a>
+      <a class="nav-item" data-section="habits">
+        <i class='bx bx-calendar-check'></i><span>Hábitos</span>
+      </a>
+      <div class="nav-divider"></div>
+      <div class="nav-label">Estratégia</div>
+      <a class="nav-item" data-section="ideas">
+        <i class='bx bx-bulb'></i><span>Ideias</span>
+      </a>
+      <a class="nav-item" data-section="goals">
+        <i class='bx bx-target-lock'></i><span>Metas & OKRs</span>
+      </a>
+      <a class="nav-item" data-section="crm">
+        <i class='bx bx-user-circle'></i><span>CRM</span>
+      </a>
+      <div class="nav-divider"></div>
+      <div class="nav-label">Gestão</div>
+      <a class="nav-item" data-section="financial">
+        <i class='bx bx-dollar-circle'></i><span>Financeiro</span>
+      </a>
+      <a class="nav-item" data-section="review">
+        <i class='bx bx-notepad'></i><span>Revisão Semanal</span>
+      </a>
+      <a class="nav-item" data-section="prompts">
+        <i class='bx bx-file-blank'></i><span>Prompts & Docs</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="user-card">
+        <div class="user-avatar">V</div>
+        <div class="user-info">
+          <span class="user-name">Vitor Falcão</span>
+          <span class="user-role">Founder</span>
+        </div>
+        <i class='bx bx-dots-horizontal-rounded user-more'></i>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Main Wrapper -->
+  <div class="main-wrapper">
+
+    <!-- Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <button class="sidebar-toggle" id="sidebarToggle">
+          <i class='bx bx-menu'></i>
+        </button>
+        <span class="page-breadcrumb" id="pageBreadcrumb">Dashboard</span>
+      </div>
+      <div class="header-center">
+        <div class="search-box">
+          <i class='bx bx-search'></i>
+          <input type="text" id="globalSearch" placeholder="Buscar...">
+          <span class="search-kbd">⌘K</span>
+        </div>
+      </div>
+      <div class="header-right">
+        <button class="btn-primary" id="primaryBtn">
+          <i class='bx bx-plus'></i>
+          <span id="primaryBtnLabel">Novo</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Content -->
+    <main class="content-area">
+
+      <!-- ==================== DASHBOARD ==================== -->
+      <section class="page active" id="section-dashboard">
+        <div class="welcome-block">
+          <div class="welcome-left">
+            <h1 class="welcome-title">Bem-vindo ao Motion Hub</h1>
+            <p class="welcome-sub">Seu centro de controle para transformar ideias em projetos reais.</p>
+          </div>
+          <div class="welcome-right" id="todayDate"></div>
+        </div>
+
+        <div class="metrics-grid" id="metricsGrid"></div>
+
+        <div class="dash-grid">
+          <div class="dash-main">
+            <div class="panel">
+              <div class="panel-head">
+                <h3 class="panel-title">Foco da Semana</h3>
+                <span class="badge badge-green">Ativo</span>
+              </div>
+              <div id="weekFocus"></div>
+            </div>
+            <div class="panel">
+              <div class="panel-head">
+                <h3 class="panel-title">Tarefas Prioritárias</h3>
+                <a class="panel-link" data-section="tasks">Ver todas →</a>
+              </div>
+              <div id="priorityTasks"></div>
+            </div>
+          </div>
+          <div class="dash-side">
+            <div class="panel">
+              <div class="panel-head">
+                <h3 class="panel-title">Projetos em Andamento</h3>
+                <a class="panel-link" data-section="projects">Ver todos →</a>
+              </div>
+              <div id="activeProjects"></div>
+            </div>
+            <div class="panel">
+              <div class="panel-head">
+                <h3 class="panel-title">Próximos Passos</h3>
+              </div>
+              <div id="nextSteps"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== PROJECTS ==================== -->
+      <section class="page" id="section-projects">
+        <div class="filter-bar">
+          <button class="ftab active" data-filter="all">Todos</button>
+          <button class="ftab" data-filter="Ideia">Ideia</button>
+          <button class="ftab" data-filter="Em desenvolvimento">Desenvolvimento</button>
+          <button class="ftab" data-filter="Validação">Validação</button>
+          <button class="ftab" data-filter="Lançado">Lançado</button>
+          <button class="ftab" data-filter="Pausado">Pausado</button>
+        </div>
+        <div class="grid-3" id="projectsGrid"></div>
+      </section>
+
+      <!-- ==================== TASKS ==================== -->
+      <section class="page" id="section-tasks">
+        <div class="kanban" id="kanban">
+          <div class="k-col">
+            <div class="k-head">
+              <div class="k-label"><span class="k-dot gray"></span>Backlog</div>
+              <span class="k-count" id="ct-backlog">0</span>
+            </div>
+            <div class="k-cards" id="col-backlog"></div>
+            <button class="k-add" data-col="backlog"><i class='bx bx-plus'></i> Tarefa</button>
+          </div>
+          <div class="k-col">
+            <div class="k-head">
+              <div class="k-label"><span class="k-dot blue"></span>Hoje</div>
+              <span class="k-count" id="ct-today">0</span>
+            </div>
+            <div class="k-cards" id="col-today"></div>
+            <button class="k-add" data-col="today"><i class='bx bx-plus'></i> Tarefa</button>
+          </div>
+          <div class="k-col">
+            <div class="k-head">
+              <div class="k-label"><span class="k-dot amber"></span>Em andamento</div>
+              <span class="k-count" id="ct-inprogress">0</span>
+            </div>
+            <div class="k-cards" id="col-inprogress"></div>
+            <button class="k-add" data-col="inprogress"><i class='bx bx-plus'></i> Tarefa</button>
+          </div>
+          <div class="k-col">
+            <div class="k-head">
+              <div class="k-label"><span class="k-dot green"></span>Concluído</div>
+              <span class="k-count" id="ct-done">0</span>
+            </div>
+            <div class="k-cards" id="col-done"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== IDEAS ==================== -->
+      <section class="page" id="section-ideas">
+        <div class="grid-3" id="ideasGrid"></div>
+      </section>
+
+      <!-- ==================== CRM ==================== -->
+      <section class="page" id="section-crm">
+        <div class="grid-3" id="crmGrid"></div>
+      </section>
+
+      <!-- ==================== FINANCIAL ==================== -->
+      <section class="page" id="section-financial">
+        <div class="metrics-grid" id="financialMetrics"></div>
+        <div class="panel" style="margin-top:24px">
+          <div class="panel-head">
+            <h3 class="panel-title">Lançamentos</h3>
+            <div class="panel-filters">
+              <button class="ftab active" data-filter="all" id="finFilter">Todos</button>
+              <button class="ftab" data-filter="Receita" id="finFilterRec">Receita</button>
+              <button class="ftab" data-filter="Despesa" id="finFilterExp">Despesa</button>
+            </div>
+          </div>
+          <div id="transactionsList"></div>
+        </div>
+      </section>
+
+      <!-- ==================== PROMPTS ==================== -->
+      <section class="page" id="section-prompts">
+        <div class="filter-bar">
+          <button class="ftab active" data-filter="all">Todos</button>
+          <button class="ftab" data-filter="Prompt">Prompt</button>
+          <button class="ftab" data-filter="Script">Script</button>
+          <button class="ftab" data-filter="Estratégia">Estratégia</button>
+          <button class="ftab" data-filter="Briefing">Briefing</button>
+          <button class="ftab" data-filter="Texto de venda">Texto de venda</button>
+          <button class="ftab" data-filter="Anotação">Anotação</button>
+        </div>
+        <div class="grid-3" id="promptsGrid"></div>
+      </section>
+
+      <!-- ==================== HABITS ==================== -->
+      <section class="page" id="section-habits">
+        <div class="habits-overview-bar" id="habitsOverview"></div>
+        <div class="habits-grid" id="habitsGrid"></div>
+      </section>
+
+      <!-- ==================== GOALS / OKRs ==================== -->
+      <section class="page" id="section-goals">
+        <div class="goals-grid" id="goalsGrid"></div>
+      </section>
+
+      <!-- ==================== REVIEW ==================== -->
+      <section class="page" id="section-review">
+        <div class="review-grid" id="reviewList"></div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<!-- Modal -->
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-box" id="modalBox">
+    <div class="modal-top">
+      <h3 class="modal-title" id="modalTitle">Novo Item</h3>
+      <button class="modal-close" id="modalClose"><i class='bx bx-x'></i></button>
+    </div>
+    <div class="modal-body" id="modalBody"></div>
+    <div class="modal-foot">
+      <button class="btn-ghost" id="modalCancel">Cancelar</button>
+      <button class="btn-primary" id="modalSave">Salvar</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm -->
+<div class="modal-overlay" id="confirmOverlay">
+  <div class="modal-box confirm-dialog">
+    <div class="confirm-icon"><i class='bx bx-error-circle'></i></div>
+    <h3 class="confirm-heading">Excluir este item?</h3>
+    <p class="confirm-sub">Esta ação é irreversível.</p>
+    <div class="modal-foot">
+      <button class="btn-ghost" id="confirmCancel">Cancelar</button>
+      <button class="btn-danger" id="confirmOk">Excluir</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toasts -->
+<div class="toasts" id="toasts"></div>
+
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="script.js"></script>
+</body>
+</html>

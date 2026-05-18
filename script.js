@@ -1,0 +1,1749 @@
+/* ====================================================
+   MOTION HUB — script.js
+   ==================================================== */
+
+/* ===== STATE ===== */
+const S = {
+  section: 'dashboard',
+  projects: [],
+  tasks: [],
+  ideas: [],
+  contacts: [],
+  transactions: [],
+  docs: [],
+  habits: [],
+  goals: [],
+  reviews: [],
+  modalSave: null,
+  confirmOk: null,
+  projectFilter: 'all',
+  promptFilter: 'all',
+  finFilter: 'all'
+};
+let _krCounter = 0;
+let _selectedMood = 3;
+
+/* ===== SUPABASE ===== */
+const SUPABASE_URL = 'https://zwqcbwiegcndwvqprcdt.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_DQg6Q79FXornM4XKlKGkJw_OQjUGEvz';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let currentUserId = null;
+
+async function syncData(updates) {
+  if (!currentUserId) return;
+  try {
+    await sb.from('app_data').upsert(
+      { user_id: currentUserId, ...updates },
+      { onConflict: 'user_id' }
+    );
+  } catch (e) { console.error('Sync error:', e); }
+}
+
+async function loadAll() {
+  const { data } = await sb.from('app_data').select('*').eq('user_id', currentUserId).maybeSingle();
+  if (data) {
+    S.projects     = data.projects     || [];
+    S.tasks        = data.tasks        || [];
+    S.ideas        = data.ideas        || [];
+    S.contacts     = data.contacts     || [];
+    S.transactions = data.transactions || [];
+    S.docs         = data.docs         || [];
+    S.habits       = data.habits       || [];
+    S.goals        = data.goals        || [];
+    S.reviews      = data.reviews      || [];
+  }
+  return data;
+}
+function saveProjects()     { syncData({ projects:     S.projects }); }
+function saveTasks()        { syncData({ tasks:        S.tasks }); }
+function saveIdeas()        { syncData({ ideas:        S.ideas }); }
+function saveContacts()     { syncData({ contacts:     S.contacts }); }
+function saveTransactions() { syncData({ transactions: S.transactions }); }
+function saveDocs()         { syncData({ docs:         S.docs }); }
+function saveHabits()       { syncData({ habits:       S.habits }); }
+function saveGoals()        { syncData({ goals:        S.goals }); }
+function saveReviews()      { syncData({ reviews:      S.reviews }); }
+
+/* ===== IDs ===== */
+function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+
+/* ===== SEED DATA ===== */
+function seedIfEmpty(existingData) {
+  if (existingData && existingData.seeded) return;
+  S.projects = [
+      { id: uid(), name: 'Cotai', desc: 'SaaS de cotação inteligente para materiais de construção.', status: 'Em desenvolvimento', priority: 'Alta', progress: 70, createdAt: '2025-01-15' },
+      { id: uid(), name: 'Simplifique', desc: 'Plataforma de BPO financeiro e assessoria para pequenos negócios.', status: 'Validação', priority: 'Média', progress: 35, createdAt: '2025-02-10' },
+      { id: uid(), name: 'VidaPet', desc: 'Plataforma de alimentação natural para pets.', status: 'Ideia', priority: 'Média', progress: 10, createdAt: '2025-03-01' },
+      { id: uid(), name: 'Motion Hub', desc: 'Hub pessoal para organizar projetos, tarefas, ideias e execução.', status: 'Em desenvolvimento', priority: 'Alta', progress: 20, createdAt: '2025-05-01' }
+    ];
+    S.tasks = [
+      { id: uid(), title: 'Refinar dashboard do Cotai', project: 'Cotai', priority: 'Alta', due: '2025-05-25', col: 'inprogress' },
+      { id: uid(), title: 'Criar lista de fornecedores', project: 'Cotai', priority: 'Média', due: '2025-05-28', col: 'today' },
+      { id: uid(), title: 'Organizar ideias de novos SaaS', project: 'Motion Hub', priority: 'Baixa', due: '', col: 'backlog' },
+      { id: uid(), title: 'Criar primeira versão do Motion Hub', project: 'Motion Hub', priority: 'Alta', due: '2025-06-01', col: 'inprogress' },
+      { id: uid(), title: 'Mapear concorrentes do Simplifique', project: 'Simplifique', priority: 'Média', due: '2025-05-30', col: 'today' },
+      { id: uid(), title: 'Pesquisar mercado pet alimentação natural', project: 'VidaPet', priority: 'Baixa', due: '', col: 'backlog' }
+    ];
+    S.ideas = [
+      { id: uid(), name: 'Consultoria fiscal automatizada', problem: 'Complexidade da Reforma Tributária para PMEs', audience: 'Pequenas e médias empresas', monetization: 'SaaS mensal + consultoria', potential: 'Alto', status: 'Em análise', notes: 'Oportunidade gerada pela Reforma Tributária 2024.' },
+      { id: uid(), name: 'Plataforma para clínicas', problem: 'Gestão fragmentada de agendas, pacientes e financeiro', audience: 'Clínicas médicas e odontológicas', monetization: 'SaaS mensal por profissional', potential: 'Alto', status: 'Guardada', notes: 'Verificar regulamentações do CFM.' },
+      { id: uid(), name: 'Sistema para advogados', problem: 'Controle de processos, clientes e prazos é manual', audience: 'Escritórios de advocacia pequenos', monetization: 'SaaS + módulo de documentos', potential: 'Médio', status: 'Guardada', notes: 'Nicho com baixa digitalização.' },
+      { id: uid(), name: 'Marketplace de materiais de construção', problem: 'Cotação de preços descentralizada e demorada', audience: 'Construtoras e empreiteiros', monetization: 'Comissão por venda + plano fornecedor', potential: 'Alto', status: 'Validando', notes: 'Extensão natural do Cotai.' }
+    ];
+    S.contacts = [
+      { id: uid(), name: 'Carlos Andrade', type: 'Cliente', company: 'Construtora Alpha', contact: 'carlos@alpha.com', status: 'Em conversa', nextStep: 'Enviar proposta comercial', notes: 'Interessado no plano enterprise do Cotai.' },
+      { id: uid(), name: 'Mariana Souza', type: 'Parceiro', company: 'Hub Digital', contact: '(11) 99999-1234', status: 'Reunião marcada', nextStep: 'Reunião dia 22/05 às 14h', notes: 'Possível parceria para distribuição.' },
+      { id: uid(), name: 'Felipe Lima', type: 'Lead', company: 'Auto-Peças Irmãos Lima', contact: 'felipe@limapeças.com', status: 'Novo', nextStep: 'Fazer primeiro contato', notes: 'Veio via indicação de Carlos Andrade.' }
+    ];
+    S.transactions = [
+      { id: uid(), type: 'Receita', desc: 'Consultoria Cotai — Construtora Alpha', value: 2500, project: 'Cotai', date: '2025-05-10' },
+      { id: uid(), type: 'Despesa', desc: 'Hospedagem AWS (mensal)', value: 180, project: 'Cotai', date: '2025-05-01' },
+      { id: uid(), type: 'Despesa', desc: 'Ferramentas SaaS (Figma, Linear, Notion)', value: 95, project: 'Motion Hub', date: '2025-05-01' },
+      { id: uid(), type: 'Receita', desc: 'Venda curso online', value: 497, project: 'Simplifique', date: '2025-05-12' },
+      { id: uid(), type: 'Despesa', desc: 'Tráfego pago Meta Ads', value: 350, project: 'Simplifique', date: '2025-05-05' }
+    ];
+    S.docs = [
+      { id: uid(), title: 'Prompt de copywriting para landing page', category: 'Prompt', content: 'Você é um copywriter especialista em SaaS B2B. Crie uma headline e subheadline poderosas para uma landing page de [PRODUTO] voltado para [PÚBLICO-ALVO]. A headline deve gerar curiosidade e focar no benefício principal. A subheadline deve complementar e clarificar a proposta de valor.', project: 'Cotai', date: '2025-05-08' },
+      { id: uid(), title: 'Script de abordagem via WhatsApp', category: 'Script', content: 'Olá, [NOME]! Tudo bem?\n\nSou o Vitor, fundador do Cotai. Vi que sua empresa atua no setor de construção civil e queria apresentar uma solução que pode reduzir o tempo de cotação de materiais em até 70%.\n\nPoderia conversar 15 minutos esta semana?', project: 'Cotai', date: '2025-05-10' },
+      { id: uid(), title: 'Estratégia de lançamento do Simplifique', category: 'Estratégia', content: 'Fase 1 (Mês 1-2): Validação com 10 clientes beta gratuitos.\nFase 2 (Mês 3): Lançamento com preço fundador para os primeiros 50 clientes.\nFase 3 (Mês 4+): Escala via tráfego pago e parcerias com contadores.', project: 'Simplifique', date: '2025-04-20' }
+    ];
+  saveProjects(); saveTasks(); saveIdeas(); saveContacts(); saveTransactions(); saveDocs();
+  syncData({ seeded: true });
+}
+
+/* ===== SEED V2 (hábitos, metas, revisão) ===== */
+function seedV2(existingData) {
+  if (existingData && existingData.seeded_v2) return;
+  const d = n => new Date(Date.now() - n * 86400000).toISOString().slice(0, 10);
+  const today = d(0);
+
+  S.habits = [
+    { id: uid(), name: 'Leitura 30 min', category: 'Desenvolvimento', icon: 'bx-book-open',
+      completions: [d(1), d(2), d(3), d(4), d(5), d(6), d(8), d(9), d(10), d(11)] },
+    { id: uid(), name: 'Exercício físico', category: 'Saúde', icon: 'bx-run',
+      completions: [today, d(1), d(3), d(5), d(6), d(8), d(10)] },
+    { id: uid(), name: 'Revisão do dia', category: 'Foco', icon: 'bx-check-double',
+      completions: [today, d(1), d(2), d(3), d(4), d(5), d(6), d(7), d(8), d(9), d(10), d(11), d(12)] },
+    { id: uid(), name: 'Prospectar 2 leads', category: 'Negócio', icon: 'bx-phone-call',
+      completions: [d(1), d(2), d(4), d(7), d(9)] },
+    { id: uid(), name: 'Meditação 10 min', category: 'Bem-estar', icon: 'bx-brain',
+      completions: [d(1), d(2), d(3), d(5), d(8)] }
+  ];
+
+  S.goals = [
+    {
+      id: uid(),
+      objective: 'Validar o Cotai comercialmente',
+      quarter: 'Q2 2025',
+      status: 'No prazo',
+      keyResults: [
+        { id: uid(), desc: 'Fechar 5 clientes beta pagantes', current: 2, target: 5, unit: 'clientes' },
+        { id: uid(), desc: 'Coletar 20 feedbacks de produto', current: 8, target: 20, unit: 'feedbacks' },
+        { id: uid(), desc: 'Atingir R$3.000 em receita recorrente', current: 2500, target: 3000, unit: 'R$' }
+      ]
+    },
+    {
+      id: uid(),
+      objective: 'Estruturar a operação dos projetos',
+      quarter: 'Q2 2025',
+      status: 'Em risco',
+      keyResults: [
+        { id: uid(), desc: 'Documentar 3 processos-chave', current: 1, target: 3, unit: 'docs' },
+        { id: uid(), desc: 'Automatizar 2 tarefas repetitivas', current: 0, target: 2, unit: 'automações' },
+        { id: uid(), desc: 'Onboarding de 1 colaborador novo', current: 0, target: 1, unit: 'pessoa' }
+      ]
+    },
+    {
+      id: uid(),
+      objective: 'Lançar o Simplifique para o mercado',
+      quarter: 'Q3 2025',
+      status: 'No prazo',
+      keyResults: [
+        { id: uid(), desc: 'Finalizar MVP do produto', current: 35, target: 100, unit: '%' },
+        { id: uid(), desc: 'Conquistar 20 clientes no lançamento', current: 0, target: 20, unit: 'clientes' }
+      ]
+    }
+  ];
+
+  const ws = getWeekStart(new Date(Date.now() - 7 * 86400000));
+  S.reviews = [
+    {
+      id: uid(),
+      weekOf: ws,
+      mood: 4,
+      advances: 'Finalizei o MVP do Motion Hub e iniciei os testes internos. Avancei 2 reuniões comerciais do Cotai e recebi feedback positivo de um cliente potencial.',
+      blockers: 'Reuniões excessivas que atrasaram blocos de desenvolvimento. Dificuldade de manter foco no período da tarde.',
+      learnings: 'Preciso bloquear períodos de foco antes que outros compromissos tomem o espaço. Pomodoro 50/10 funciona melhor do que 25/5 pra mim.',
+      nextFocus: 'Fechar o primeiro cliente pagante do Cotai. Avançar no módulo financeiro do Motion Hub. Mapear os processos de onboarding do Simplifique.',
+      createdAt: d(0)
+    }
+  ];
+
+  saveHabits();
+  saveGoals();
+  saveReviews();
+  syncData({ seeded_v2: true });
+}
+
+/* ===== NAVIGATION ===== */
+const sectionMeta = {
+  dashboard:  { label: 'Dashboard',        btnLabel: null },
+  projects:   { label: 'Projetos',          btnLabel: 'Novo Projeto' },
+  tasks:      { label: 'Tarefas',           btnLabel: 'Nova Tarefa' },
+  habits:     { label: 'Hábitos',           btnLabel: 'Novo Hábito' },
+  ideas:      { label: 'Ideias',            btnLabel: 'Nova Ideia' },
+  goals:      { label: 'Metas & OKRs',      btnLabel: 'Nova Meta' },
+  crm:        { label: 'CRM',               btnLabel: 'Novo Contato' },
+  financial:  { label: 'Financeiro',        btnLabel: 'Novo Lançamento' },
+  review:     { label: 'Revisão Semanal',   btnLabel: 'Nova Revisão' },
+  prompts:    { label: 'Prompts & Docs',    btnLabel: 'Novo Documento' }
+};
+
+function navigateTo(section) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  const page = document.getElementById('section-' + section);
+  if (page) page.classList.add('active');
+  const navItem = document.querySelector(`.nav-item[data-section="${section}"]`);
+  if (navItem) navItem.classList.add('active');
+  S.section = section;
+  const meta = sectionMeta[section];
+  document.getElementById('pageBreadcrumb').textContent = meta.label;
+  const btn = document.getElementById('primaryBtn');
+  const btnLabel = document.getElementById('primaryBtnLabel');
+  if (meta.btnLabel) {
+    btn.style.display = '';
+    btnLabel.textContent = meta.btnLabel;
+  } else {
+    btn.style.display = 'none';
+  }
+  renderSection(section);
+}
+
+function renderSection(section) {
+  if (section === 'dashboard') renderDashboard();
+  else if (section === 'projects') renderProjects();
+  else if (section === 'tasks') renderKanban();
+  else if (section === 'habits') renderHabits();
+  else if (section === 'ideas') renderIdeas();
+  else if (section === 'goals') renderGoals();
+  else if (section === 'crm') renderCRM();
+  else if (section === 'financial') renderFinancial();
+  else if (section === 'review') renderReview();
+  else if (section === 'prompts') renderPrompts();
+}
+
+/* ===== TOAST ===== */
+function toast(msg, type = 'success') {
+  const icons = { success: 'bx-check-circle', error: 'bx-error-circle', info: 'bx-info-circle' };
+  const el = document.createElement('div');
+  el.className = `toast toast-${type}`;
+  el.innerHTML = `<i class='bx ${icons[type]}'></i><span>${msg}</span>`;
+  document.getElementById('toasts').appendChild(el);
+  setTimeout(() => { el.style.animation = 'toastOut 0.3s ease forwards'; setTimeout(() => el.remove(), 300); }, 2800);
+}
+
+/* ===== MODAL ===== */
+function openModal(title, bodyHTML, onSave) {
+  document.getElementById('modalTitle').textContent = title;
+  document.getElementById('modalBody').innerHTML = bodyHTML;
+  document.getElementById('modalOverlay').classList.add('open');
+  S.modalSave = onSave;
+}
+function closeModal() {
+  document.getElementById('modalOverlay').classList.remove('open');
+  S.modalSave = null;
+}
+
+/* ===== CONFIRM ===== */
+function openConfirm(onOk) {
+  document.getElementById('confirmOverlay').classList.add('open');
+  S.confirmOk = onOk;
+}
+function closeConfirm() {
+  document.getElementById('confirmOverlay').classList.remove('open');
+  S.confirmOk = null;
+}
+
+/* ===== HELPERS ===== */
+function escHtml(str) {
+  return String(str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function fmtCurrency(v) {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
+}
+function fmtDate(d) {
+  if (!d) return '';
+  const [y, m, day] = d.split('-');
+  return `${day}/${m}/${y}`;
+}
+function statusClass(status) {
+  const map = {
+    'Em desenvolvimento': 'status-blue', 'Ideia': 'status-gray', 'Validação': 'status-amber',
+    'Lançado': 'status-green', 'Pausado': 'status-red',
+    'Guardada': 'status-gray', 'Em análise': 'status-blue', 'Validando': 'status-amber',
+    'Aprovada': 'status-green', 'Descartada': 'status-red',
+    'Novo': 'status-gray', 'Contatado': 'status-blue', 'Em conversa': 'status-amber',
+    'Reunião marcada': 'status-purple', 'Fechado': 'status-green', 'Perdido': 'status-red',
+    'Semana ativa': 'status-green'
+  };
+  return map[status] || 'status-gray';
+}
+function prioClass(p) {
+  if (p === 'Alta') return 'prio-high';
+  if (p === 'Média') return 'prio-medium';
+  return 'prio-low';
+}
+function potentialClass(p) {
+  if (p === 'Alto') return 'badge-green';
+  if (p === 'Médio') return 'badge-amber';
+  return 'badge-gray';
+}
+function projDot(status) {
+  const c = { 'Em desenvolvimento': '#2563EB', 'Ideia': '#545D70', 'Validação': '#F5A623', 'Lançado': '#22C55E', 'Pausado': '#FF4757' };
+  return c[status] || '#545D70';
+}
+function getProjectNames() { return S.projects.map(p => p.name); }
+
+/* ===== DASHBOARD ===== */
+function renderDashboard() {
+  const now = new Date();
+  const days = ['Domingo','Segunda','Terça','Quarta','Quinta','Sexta','Sábado'];
+  const months = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+  document.getElementById('todayDate').innerHTML = `
+    <div class="welcome-date-day">${now.getDate()}</div>
+    <div class="welcome-date-info">${days[now.getDay()]}, ${months[now.getMonth()]} ${now.getFullYear()}</div>
+  `;
+
+  // Metrics
+  const activeProjs = S.projects.filter(p => p.status === 'Em desenvolvimento').length;
+  const pendingTasks = S.tasks.filter(t => t.col !== 'done').length;
+  const totalIdeas = S.ideas.length;
+  const totalContacts = S.contacts.length;
+  document.getElementById('metricsGrid').innerHTML = `
+    <div class="metric-card" style="--accent-color:#2563EB">
+      <div class="metric-icon" style="background:rgba(37,99,235,0.15);color:#2563EB"><i class='bx bx-folder-open'></i></div>
+      <div class="metric-body">
+        <div class="metric-value">${activeProjs}</div>
+        <div class="metric-label">Projetos Ativos</div>
+        <div class="metric-delta" style="color:#2563EB"><i class='bx bx-trending-up'></i>${S.projects.length} total</div>
+      </div>
+    </div>
+    <div class="metric-card" style="--accent-color:#4D8EFF">
+      <div class="metric-icon" style="background:rgba(77,142,255,0.12);color:#4D8EFF"><i class='bx bx-check-square'></i></div>
+      <div class="metric-body">
+        <div class="metric-value">${pendingTasks}</div>
+        <div class="metric-label">Tarefas Pendentes</div>
+        <div class="metric-delta" style="color:#4D8EFF"><i class='bx bx-time'></i>${S.tasks.filter(t=>t.col==='inprogress').length} em andamento</div>
+      </div>
+    </div>
+    <div class="metric-card" style="--accent-color:#9B6DFF">
+      <div class="metric-icon" style="background:rgba(155,109,255,0.15);color:#9B6DFF"><i class='bx bx-bulb'></i></div>
+      <div class="metric-body">
+        <div class="metric-value">${totalIdeas}</div>
+        <div class="metric-label">Ideias Registradas</div>
+        <div class="metric-delta" style="color:#9B6DFF"><i class='bx bx-trending-up'></i>${S.ideas.filter(i=>i.status==='Validando').length} validando</div>
+      </div>
+    </div>
+    <div class="metric-card" style="--accent-color:#F5A623">
+      <div class="metric-icon" style="background:rgba(245,166,35,0.12);color:#F5A623"><i class='bx bx-user-circle'></i></div>
+      <div class="metric-body">
+        <div class="metric-value">${totalContacts}</div>
+        <div class="metric-label">Contatos CRM</div>
+        <div class="metric-delta" style="color:#F5A623"><i class='bx bx-radio-circle-marked'></i>${S.contacts.filter(c=>c.status==='Em conversa'||c.status==='Reunião marcada').length} ativos</div>
+      </div>
+    </div>
+  `;
+
+  // Week Focus
+  const focusTasks = S.tasks.filter(t => t.col === 'inprogress' || t.col === 'today').slice(0, 4);
+  document.getElementById('weekFocus').innerHTML = focusTasks.length
+    ? focusTasks.map((t, i) => `
+        <div class="focus-item">
+          <div class="focus-num">${i + 1}</div>
+          <div class="focus-text">${escHtml(t.title)}</div>
+          <span class="focus-proj">${escHtml(t.project || '—')}</span>
+        </div>`).join('')
+    : '<div class="focus-item"><div class="focus-text" style="color:var(--text3)">Nenhuma tarefa ativa. Adicione tarefas no Kanban.</div></div>';
+
+  // Priority Tasks
+  const hiPrio = S.tasks.filter(t => t.priority === 'Alta' && t.col !== 'done').slice(0, 5);
+  document.getElementById('priorityTasks').innerHTML = hiPrio.length
+    ? hiPrio.map(t => `
+        <div class="task-row">
+          <div class="task-check"></div>
+          <div class="task-text">${escHtml(t.title)}</div>
+          <span class="task-proj-tag">${escHtml(t.project || '—')}</span>
+        </div>`).join('')
+    : '<div class="task-row"><div class="task-text" style="color:var(--text3)">Nenhuma tarefa prioritária pendente.</div></div>';
+
+  // Active Projects
+  const active = S.projects.filter(p => p.status === 'Em desenvolvimento').slice(0, 4);
+  document.getElementById('activeProjects').innerHTML = active.length
+    ? active.map(p => `
+        <div class="proj-row">
+          <div class="proj-dot" style="background:${projDot(p.status)}"></div>
+          <div class="proj-row-info">
+            <div class="proj-row-name">${escHtml(p.name)}</div>
+            <div class="proj-row-meta">${escHtml(p.status)}</div>
+          </div>
+          <div class="proj-row-pct">${p.progress}%</div>
+        </div>`).join('')
+    : '<div class="proj-row"><div class="proj-row-info"><div class="proj-row-name" style="color:var(--text3)">Nenhum projeto em desenvolvimento.</div></div></div>';
+
+  // Next Steps
+  const steps = [
+    'Revisar progresso dos projetos ativos',
+    'Atualizar status das tarefas no Kanban',
+    'Fazer contato com leads do CRM',
+    'Registrar novos gastos e receitas',
+    'Capturar novas ideias de negócio'
+  ];
+  document.getElementById('nextSteps').innerHTML = steps.map(s => `
+    <div class="step-item">
+      <div class="step-bullet"></div>
+      <div class="step-text">${s}</div>
+    </div>`).join('');
+}
+
+/* ===== PROJECTS ===== */
+function renderProjects(filter) {
+  if (filter !== undefined) S.projectFilter = filter;
+  const f = S.projectFilter;
+  let list = f === 'all' ? S.projects : S.projects.filter(p => p.status === f);
+  const q = (document.getElementById('globalSearch').value || '').toLowerCase();
+  if (q && S.section === 'projects') list = list.filter(p => p.name.toLowerCase().includes(q) || (p.desc || '').toLowerCase().includes(q));
+
+  document.querySelectorAll('#section-projects .ftab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.filter === f);
+  });
+
+  const grid = document.getElementById('projectsGrid');
+  if (!list.length) {
+    grid.innerHTML = `<div class="empty-state"><div class="empty-icon"><i class='bx bx-folder-open'></i></div><div class="empty-title">Nenhum projeto encontrado</div><div class="empty-sub">Crie um novo projeto ou ajuste o filtro.</div></div>`;
+    return;
+  }
+  grid.innerHTML = list.map(p => `
+    <div class="proj-card" data-id="${p.id}">
+      <div class="proj-card-top">
+        <div class="proj-card-header">
+          <div class="proj-card-name">${escHtml(p.name)}</div>
+          <div class="card-actions">
+            <button class="btn-icon green" onclick="editProject('${p.id}')"><i class='bx bx-edit-alt'></i></button>
+            <button class="btn-icon danger" onclick="delProject('${p.id}')"><i class='bx bx-trash'></i></button>
+          </div>
+        </div>
+        <div class="proj-card-desc">${escHtml(p.desc)}</div>
+        <div class="proj-card-meta">
+          <span class="status-badge ${statusClass(p.status)}">${escHtml(p.status)}</span>
+          <span class="prio ${prioClass(p.priority)}">${escHtml(p.priority)}</span>
+        </div>
+      </div>
+      <div class="proj-card-bottom">
+        <div class="progress-wrap">
+          <div class="progress-label">
+            <span class="progress-text">Progresso</span>
+            <span class="progress-pct">${p.progress}%</span>
+          </div>
+          <div class="progress-bar"><div class="progress-fill" style="width:${p.progress}%"></div></div>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+function projectForm(p = {}) {
+  const projects = S.projects.map(x => x.name);
+  return `
+    <div class="form-group">
+      <label class="form-label">Nome do Projeto *</label>
+      <input class="form-input" id="f-name" placeholder="Ex: Cotai" value="${escHtml(p.name || '')}">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Descrição</label>
+      <textarea class="form-textarea" id="f-desc" placeholder="Descreva o projeto brevemente..." rows="3">${escHtml(p.desc || '')}</textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Status</label>
+        <select class="form-select" id="f-status">
+          ${['Ideia','Em desenvolvimento','Validação','Lançado','Pausado'].map(s => `<option${p.status===s?' selected':''}>${s}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Prioridade</label>
+        <select class="form-select" id="f-priority">
+          ${['Alta','Média','Baixa'].map(s => `<option${p.priority===s?' selected':''}>${s}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Progresso: <span id="f-prog-val">${p.progress || 0}%</span></label>
+      <div class="range-wrap">
+        <input class="form-range" id="f-progress" type="range" min="0" max="100" value="${p.progress || 0}" oninput="document.getElementById('f-prog-val').textContent=this.value+'%'">
+      </div>
+    </div>
+  `;
+}
+
+function newProject(defaultCol) {
+  openModal('Novo Projeto', projectForm(), () => {
+    const name = document.getElementById('f-name').value.trim();
+    if (!name) { toast('Nome do projeto é obrigatório.', 'error'); return false; }
+    S.projects.unshift({ id: uid(), name, desc: document.getElementById('f-desc').value.trim(), status: document.getElementById('f-status').value, priority: document.getElementById('f-priority').value, progress: +document.getElementById('f-progress').value, createdAt: new Date().toISOString().slice(0,10) });
+    saveProjects(); renderProjects(); renderDashboard(); toast('Projeto criado com sucesso!');
+  });
+}
+
+function editProject(id) {
+  const p = S.projects.find(x => x.id === id);
+  if (!p) return;
+  openModal('Editar Projeto', projectForm(p), () => {
+    const name = document.getElementById('f-name').value.trim();
+    if (!name) { toast('Nome obrigatório.', 'error'); return false; }
+    Object.assign(p, { name, desc: document.getElementById('f-desc').value.trim(), status: document.getElementById('f-status').value, priority: document.getElementById('f-priority').value, progress: +document.getElementById('f-progress').value });
+    saveProjects(); renderProjects(); renderDashboard(); toast('Projeto atualizado!');
+  });
+}
+
+function delProject(id) {
+  openConfirm(() => {
+    S.projects = S.projects.filter(x => x.id !== id);
+    saveProjects(); renderProjects(); renderDashboard(); toast('Projeto excluído.', 'info');
+  });
+}
+
+/* ===== TASKS (KANBAN) ===== */
+const colLabels = { backlog: 'Backlog', today: 'Hoje', inprogress: 'Em andamento', done: 'Concluído' };
+
+function renderKanban() {
+  ['backlog','today','inprogress','done'].forEach(col => {
+    const tasks = S.tasks.filter(t => t.col === col);
+    document.getElementById('ct-' + col).textContent = tasks.length;
+    const q = (document.getElementById('globalSearch').value || '').toLowerCase();
+    const filtered = q && S.section === 'tasks' ? tasks.filter(t => t.title.toLowerCase().includes(q)) : tasks;
+    document.getElementById('col-' + col).innerHTML = filtered.map(t => taskCard(t)).join('') || '';
+  });
+}
+
+function taskCard(t) {
+  const now = new Date(); now.setHours(0,0,0,0);
+  const dueDate = t.due ? new Date(t.due + 'T00:00:00') : null;
+  const isOverdue = dueDate && dueDate < now && t.col !== 'done';
+  return `
+    <div class="task-card" data-id="${t.id}">
+      <div class="task-card-title">${escHtml(t.title)}</div>
+      <div class="task-card-meta">
+        <div class="task-card-tags">
+          <span class="prio ${prioClass(t.priority)}">${escHtml(t.priority)}</span>
+          ${t.project ? `<span class="task-proj-tag">${escHtml(t.project)}</span>` : ''}
+        </div>
+        <div class="task-card-actions">
+          <button class="btn-icon green" onclick="editTask('${t.id}')"><i class='bx bx-edit-alt'></i></button>
+          <button class="btn-icon danger" onclick="delTask('${t.id}')"><i class='bx bx-trash'></i></button>
+        </div>
+      </div>
+      ${t.due ? `<div class="task-due${isOverdue?' overdue':''}"><i class='bx bx-calendar'></i>${fmtDate(t.due)}${isOverdue?' · Atrasada':''}</div>` : ''}
+      <div style="margin-top:8px">
+        <select class="form-select" style="font-size:11px;padding:4px 24px 4px 8px;height:auto" onchange="moveTask('${t.id}',this.value)">
+          ${Object.entries(colLabels).map(([k,v]) => `<option value="${k}"${t.col===k?' selected':''}>${v}</option>`).join('')}
+        </select>
+      </div>
+    </div>`;
+}
+
+function taskForm(t = {}) {
+  const projNames = getProjectNames();
+  return `
+    <div class="form-group">
+      <label class="form-label">Título da Tarefa *</label>
+      <input class="form-input" id="f-title" placeholder="Ex: Refinar dashboard" value="${escHtml(t.title || '')}">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Projeto</label>
+        <select class="form-select" id="f-project">
+          <option value="">— Nenhum —</option>
+          ${projNames.map(n => `<option${t.project===n?' selected':''}>${n}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Prioridade</label>
+        <select class="form-select" id="f-priority">
+          ${['Alta','Média','Baixa'].map(s => `<option${t.priority===s?' selected':''}>${s}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Coluna</label>
+        <select class="form-select" id="f-col">
+          ${Object.entries(colLabels).map(([k,v]) => `<option value="${k}"${(t.col||'backlog')===k?' selected':''}>${v}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Prazo</label>
+        <input class="form-input" id="f-due" type="date" value="${t.due || ''}">
+      </div>
+    </div>
+  `;
+}
+
+function newTask(col) {
+  const def = { col: col || 'backlog' };
+  openModal('Nova Tarefa', taskForm(def), () => {
+    const title = document.getElementById('f-title').value.trim();
+    if (!title) { toast('Título obrigatório.', 'error'); return false; }
+    S.tasks.unshift({ id: uid(), title, project: document.getElementById('f-project').value, priority: document.getElementById('f-priority').value, col: document.getElementById('f-col').value, due: document.getElementById('f-due').value });
+    saveTasks(); renderKanban(); renderDashboard(); toast('Tarefa criada!');
+  });
+}
+
+function editTask(id) {
+  const t = S.tasks.find(x => x.id === id);
+  if (!t) return;
+  openModal('Editar Tarefa', taskForm(t), () => {
+    const title = document.getElementById('f-title').value.trim();
+    if (!title) { toast('Título obrigatório.', 'error'); return false; }
+    Object.assign(t, { title, project: document.getElementById('f-project').value, priority: document.getElementById('f-priority').value, col: document.getElementById('f-col').value, due: document.getElementById('f-due').value });
+    saveTasks(); renderKanban(); renderDashboard(); toast('Tarefa atualizada!');
+  });
+}
+
+function delTask(id) {
+  openConfirm(() => {
+    S.tasks = S.tasks.filter(x => x.id !== id);
+    saveTasks(); renderKanban(); renderDashboard(); toast('Tarefa excluída.', 'info');
+  });
+}
+
+function moveTask(id, col) {
+  const t = S.tasks.find(x => x.id === id);
+  if (t) { t.col = col; saveTasks(); renderKanban(); renderDashboard(); }
+}
+
+/* ===== IDEAS ===== */
+function renderIdeas() {
+  let list = [...S.ideas];
+  const q = (document.getElementById('globalSearch').value || '').toLowerCase();
+  if (q && S.section === 'ideas') list = list.filter(i => i.name.toLowerCase().includes(q) || (i.problem||'').toLowerCase().includes(q));
+  const grid = document.getElementById('ideasGrid');
+  if (!list.length) {
+    grid.innerHTML = `<div class="empty-state"><div class="empty-icon"><i class='bx bx-bulb'></i></div><div class="empty-title">Nenhuma ideia registrada</div><div class="empty-sub">Capture sua próxima grande ideia de negócio.</div></div>`;
+    return;
+  }
+  grid.innerHTML = list.map(i => `
+    <div class="idea-card" data-id="${i.id}">
+      <div class="idea-card-head">
+        <div class="idea-card-name">${escHtml(i.name)}</div>
+        <div class="idea-card-actions">
+          <button class="btn-icon green" onclick="editIdea('${i.id}')"><i class='bx bx-edit-alt'></i></button>
+          <button class="btn-icon danger" onclick="delIdea('${i.id}')"><i class='bx bx-trash'></i></button>
+        </div>
+      </div>
+      <div class="idea-card-body">
+        <div class="idea-field">
+          <div class="idea-field-label">Problema</div>
+          <div class="idea-field-value">${escHtml(i.problem)}</div>
+        </div>
+        <div class="idea-field">
+          <div class="idea-field-label">Público-alvo</div>
+          <div class="idea-field-value">${escHtml(i.audience)}</div>
+        </div>
+        <div class="idea-field">
+          <div class="idea-field-label">Monetização</div>
+          <div class="idea-field-value">${escHtml(i.monetization)}</div>
+        </div>
+        ${i.notes ? `<div class="idea-field"><div class="idea-field-label">Observações</div><div class="idea-field-value">${escHtml(i.notes)}</div></div>` : ''}
+      </div>
+      <div class="idea-card-foot">
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <span class="status-badge ${statusClass(i.status)}">${escHtml(i.status)}</span>
+          <span class="badge ${potentialClass(i.potential)}">${escHtml(i.potential)} potencial</span>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+function ideaForm(i = {}) {
+  return `
+    <div class="form-group">
+      <label class="form-label">Nome da Ideia *</label>
+      <input class="form-input" id="f-name" placeholder="Ex: Plataforma para clínicas" value="${escHtml(i.name||'')}">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Problema que resolve</label>
+      <textarea class="form-textarea" id="f-problem" rows="2" placeholder="Qual dor resolve?">${escHtml(i.problem||'')}</textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Público-alvo</label>
+        <input class="form-input" id="f-audience" placeholder="Ex: PMEs" value="${escHtml(i.audience||'')}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Monetização</label>
+        <input class="form-input" id="f-monetization" placeholder="Ex: SaaS mensal" value="${escHtml(i.monetization||'')}">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Potencial</label>
+        <select class="form-select" id="f-potential">
+          ${['Alto','Médio','Baixo'].map(s => `<option${i.potential===s?' selected':''}>${s}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Status</label>
+        <select class="form-select" id="f-status">
+          ${['Guardada','Em análise','Validando','Aprovada','Descartada'].map(s => `<option${i.status===s?' selected':''}>${s}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Observações</label>
+      <textarea class="form-textarea" id="f-notes" rows="2" placeholder="Notas adicionais...">${escHtml(i.notes||'')}</textarea>
+    </div>
+  `;
+}
+
+function newIdea() {
+  openModal('Nova Ideia', ideaForm(), () => {
+    const name = document.getElementById('f-name').value.trim();
+    if (!name) { toast('Nome obrigatório.', 'error'); return false; }
+    S.ideas.unshift({ id: uid(), name, problem: document.getElementById('f-problem').value.trim(), audience: document.getElementById('f-audience').value.trim(), monetization: document.getElementById('f-monetization').value.trim(), potential: document.getElementById('f-potential').value, status: document.getElementById('f-status').value, notes: document.getElementById('f-notes').value.trim() });
+    saveIdeas(); renderIdeas(); renderDashboard(); toast('Ideia registrada!');
+  });
+}
+
+function editIdea(id) {
+  const i = S.ideas.find(x => x.id === id);
+  if (!i) return;
+  openModal('Editar Ideia', ideaForm(i), () => {
+    const name = document.getElementById('f-name').value.trim();
+    if (!name) { toast('Nome obrigatório.', 'error'); return false; }
+    Object.assign(i, { name, problem: document.getElementById('f-problem').value.trim(), audience: document.getElementById('f-audience').value.trim(), monetization: document.getElementById('f-monetization').value.trim(), potential: document.getElementById('f-potential').value, status: document.getElementById('f-status').value, notes: document.getElementById('f-notes').value.trim() });
+    saveIdeas(); renderIdeas(); toast('Ideia atualizada!');
+  });
+}
+
+function delIdea(id) {
+  openConfirm(() => {
+    S.ideas = S.ideas.filter(x => x.id !== id);
+    saveIdeas(); renderIdeas(); renderDashboard(); toast('Ideia excluída.', 'info');
+  });
+}
+
+/* ===== CRM ===== */
+function renderCRM() {
+  let list = [...S.contacts];
+  const q = (document.getElementById('globalSearch').value || '').toLowerCase();
+  if (q && S.section === 'crm') list = list.filter(c => c.name.toLowerCase().includes(q) || (c.company||'').toLowerCase().includes(q));
+  const grid = document.getElementById('crmGrid');
+  if (!list.length) {
+    grid.innerHTML = `<div class="empty-state"><div class="empty-icon"><i class='bx bx-user-circle'></i></div><div class="empty-title">Nenhum contato cadastrado</div><div class="empty-sub">Adicione clientes, parceiros e leads ao seu CRM.</div></div>`;
+    return;
+  }
+  grid.innerHTML = list.map(c => {
+    const initial = (c.name || '?')[0].toUpperCase();
+    const avatarColors = { 'Cliente': '#2563EB', 'Parceiro': '#9B6DFF', 'Lead': '#F5A623', 'Fornecedor': '#22C55E', 'Engenheiro': '#FF4757' };
+    const col = avatarColors[c.type] || '#4D8EFF';
+    return `
+      <div class="crm-card" data-id="${c.id}">
+        <div class="crm-card-head">
+          <div class="crm-avatar" style="background:linear-gradient(135deg,${col}88,${col}44)">${initial}</div>
+          <div class="crm-card-info">
+            <div class="crm-name">${escHtml(c.name)}</div>
+            <div class="crm-company">${escHtml(c.company || '—')}</div>
+          </div>
+          <div class="crm-card-actions">
+            <button class="btn-icon green" onclick="editContact('${c.id}')"><i class='bx bx-edit-alt'></i></button>
+            <button class="btn-icon danger" onclick="delContact('${c.id}')"><i class='bx bx-trash'></i></button>
+          </div>
+        </div>
+        <div class="crm-fields">
+          <div class="crm-field">
+            <i class='bx bx-phone'></i>
+            <span class="crm-field-text">${escHtml(c.contact || '—')}</span>
+          </div>
+          <div class="crm-field">
+            <i class='bx bx-right-arrow-alt'></i>
+            <span class="crm-field-text">${escHtml(c.nextStep || '—')}</span>
+          </div>
+          ${c.notes ? `<div class="crm-field"><i class='bx bx-note'></i><span class="crm-field-text">${escHtml(c.notes)}</span></div>` : ''}
+        </div>
+        <div class="crm-card-foot">
+          <span class="badge badge-gray">${escHtml(c.type)}</span>
+          <span class="status-badge ${statusClass(c.status)}">${escHtml(c.status)}</span>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function contactForm(c = {}) {
+  return `
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Nome *</label>
+        <input class="form-input" id="f-name" placeholder="Nome completo" value="${escHtml(c.name||'')}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Empresa</label>
+        <input class="form-input" id="f-company" placeholder="Nome da empresa" value="${escHtml(c.company||'')}">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Tipo</label>
+        <select class="form-select" id="f-type">
+          ${['Cliente','Fornecedor','Engenheiro','Parceiro','Lead'].map(s => `<option${c.type===s?' selected':''}>${s}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">WhatsApp / Email</label>
+        <input class="form-input" id="f-contact" placeholder="(11) 99999-0000" value="${escHtml(c.contact||'')}">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Status</label>
+        <select class="form-select" id="f-status">
+          ${['Novo','Contatado','Em conversa','Reunião marcada','Fechado','Perdido'].map(s => `<option${c.status===s?' selected':''}>${s}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Próximo Passo</label>
+        <input class="form-input" id="f-nextstep" placeholder="Ex: Enviar proposta" value="${escHtml(c.nextStep||'')}">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Observações</label>
+      <textarea class="form-textarea" id="f-notes" rows="2" placeholder="Notas sobre o contato...">${escHtml(c.notes||'')}</textarea>
+    </div>
+  `;
+}
+
+function newContact() {
+  openModal('Novo Contato', contactForm(), () => {
+    const name = document.getElementById('f-name').value.trim();
+    if (!name) { toast('Nome obrigatório.', 'error'); return false; }
+    S.contacts.unshift({ id: uid(), name, company: document.getElementById('f-company').value.trim(), type: document.getElementById('f-type').value, contact: document.getElementById('f-contact').value.trim(), status: document.getElementById('f-status').value, nextStep: document.getElementById('f-nextstep').value.trim(), notes: document.getElementById('f-notes').value.trim() });
+    saveContacts(); renderCRM(); renderDashboard(); toast('Contato criado!');
+  });
+}
+
+function editContact(id) {
+  const c = S.contacts.find(x => x.id === id);
+  if (!c) return;
+  openModal('Editar Contato', contactForm(c), () => {
+    const name = document.getElementById('f-name').value.trim();
+    if (!name) { toast('Nome obrigatório.', 'error'); return false; }
+    Object.assign(c, { name, company: document.getElementById('f-company').value.trim(), type: document.getElementById('f-type').value, contact: document.getElementById('f-contact').value.trim(), status: document.getElementById('f-status').value, nextStep: document.getElementById('f-nextstep').value.trim(), notes: document.getElementById('f-notes').value.trim() });
+    saveContacts(); renderCRM(); toast('Contato atualizado!');
+  });
+}
+
+function delContact(id) {
+  openConfirm(() => {
+    S.contacts = S.contacts.filter(x => x.id !== id);
+    saveContacts(); renderCRM(); renderDashboard(); toast('Contato excluído.', 'info');
+  });
+}
+
+/* ===== FINANCIAL ===== */
+function renderFinancial() {
+  const income = S.transactions.filter(t => t.type === 'Receita').reduce((s, t) => s + (+t.value || 0), 0);
+  const expense = S.transactions.filter(t => t.type === 'Despesa').reduce((s, t) => s + (+t.value || 0), 0);
+  const balance = income - expense;
+
+  document.getElementById('financialMetrics').innerHTML = `
+    <div class="metric-card" style="--accent-color:#22C55E">
+      <div class="metric-icon" style="background:rgba(34,197,94,0.15);color:#22C55E"><i class='bx bx-trending-up'></i></div>
+      <div class="metric-body">
+        <div class="metric-value" style="font-size:20px">${fmtCurrency(income)}</div>
+        <div class="metric-label">Receita Total</div>
+      </div>
+    </div>
+    <div class="metric-card" style="--accent-color:#FF4757">
+      <div class="metric-icon" style="background:rgba(255,71,87,0.12);color:#FF4757"><i class='bx bx-trending-down'></i></div>
+      <div class="metric-body">
+        <div class="metric-value" style="font-size:20px">${fmtCurrency(expense)}</div>
+        <div class="metric-label">Despesas Totais</div>
+      </div>
+    </div>
+    <div class="metric-card" style="--accent-color:${balance >= 0 ? '#22C55E' : '#FF4757'}">
+      <div class="metric-icon" style="background:${balance>=0?'rgba(34,197,94,0.15)':'rgba(255,71,87,0.12)'};color:${balance>=0?'#22C55E':'#FF4757'}"><i class='bx bx-wallet'></i></div>
+      <div class="metric-body">
+        <div class="metric-value" style="font-size:20px;color:${balance>=0?'#22C55E':'var(--red)'}">${fmtCurrency(balance)}</div>
+        <div class="metric-label">${balance >= 0 ? 'Lucro Estimado' : 'Prejuízo Estimado'}</div>
+      </div>
+    </div>
+    <div class="metric-card" style="--accent-color:#4D8EFF">
+      <div class="metric-icon" style="background:rgba(77,142,255,0.12);color:#4D8EFF"><i class='bx bx-receipt'></i></div>
+      <div class="metric-body">
+        <div class="metric-value">${S.transactions.length}</div>
+        <div class="metric-label">Lançamentos</div>
+      </div>
+    </div>
+  `;
+
+  let list = [...S.transactions].sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  if (S.finFilter !== 'all') list = list.filter(t => t.type === S.finFilter);
+
+  document.querySelectorAll('#section-financial .ftab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.filter === S.finFilter);
+  });
+
+  const el = document.getElementById('transactionsList');
+  if (!list.length) {
+    el.innerHTML = `<div class="empty-state" style="grid-column:unset"><div class="empty-icon"><i class='bx bx-receipt'></i></div><div class="empty-title">Nenhum lançamento</div><div class="empty-sub">Registre receitas e despesas dos seus projetos.</div></div>`;
+    return;
+  }
+  el.innerHTML = list.map(t => `
+    <div class="transaction-row">
+      <div class="tx-icon ${t.type==='Receita'?'income':'expense'}">
+        <i class='bx ${t.type==='Receita'?'bx-plus':'bx-minus'}'></i>
+      </div>
+      <div class="tx-info">
+        <div class="tx-desc">${escHtml(t.desc)}</div>
+        <div class="tx-meta">${escHtml(t.project||'Geral')} · ${fmtDate(t.date)}</div>
+      </div>
+      <div class="tx-amount ${t.type==='Receita'?'income':'expense'}">${t.type==='Receita'?'+':'-'}${fmtCurrency(t.value)}</div>
+      <div class="tx-actions">
+        <button class="btn-icon green" onclick="editTransaction('${t.id}')"><i class='bx bx-edit-alt'></i></button>
+        <button class="btn-icon danger" onclick="delTransaction('${t.id}')"><i class='bx bx-trash'></i></button>
+      </div>
+    </div>`).join('');
+}
+
+function transactionForm(t = {}) {
+  const projNames = getProjectNames();
+  return `
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Tipo *</label>
+        <select class="form-select" id="f-type">
+          <option${t.type==='Receita'?' selected':''}>Receita</option>
+          <option${t.type==='Despesa'?' selected':''}>Despesa</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Valor (R$) *</label>
+        <input class="form-input" id="f-value" type="number" min="0" step="0.01" placeholder="0,00" value="${t.value||''}">
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Descrição *</label>
+      <input class="form-input" id="f-desc" placeholder="Ex: Hospedagem AWS" value="${escHtml(t.desc||'')}">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Projeto</label>
+        <select class="form-select" id="f-project">
+          <option value="">— Geral —</option>
+          ${projNames.map(n => `<option${t.project===n?' selected':''}>${n}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Data</label>
+        <input class="form-input" id="f-date" type="date" value="${t.date || new Date().toISOString().slice(0,10)}">
+      </div>
+    </div>
+  `;
+}
+
+function newTransaction() {
+  openModal('Novo Lançamento', transactionForm(), () => {
+    const desc = document.getElementById('f-desc').value.trim();
+    const value = parseFloat(document.getElementById('f-value').value);
+    if (!desc) { toast('Descrição obrigatória.', 'error'); return false; }
+    if (!value || value <= 0) { toast('Valor inválido.', 'error'); return false; }
+    S.transactions.unshift({ id: uid(), type: document.getElementById('f-type').value, desc, value, project: document.getElementById('f-project').value, date: document.getElementById('f-date').value });
+    saveTransactions(); renderFinancial(); toast('Lançamento criado!');
+  });
+}
+
+function editTransaction(id) {
+  const t = S.transactions.find(x => x.id === id);
+  if (!t) return;
+  openModal('Editar Lançamento', transactionForm(t), () => {
+    const desc = document.getElementById('f-desc').value.trim();
+    const value = parseFloat(document.getElementById('f-value').value);
+    if (!desc) { toast('Descrição obrigatória.', 'error'); return false; }
+    if (!value || value <= 0) { toast('Valor inválido.', 'error'); return false; }
+    Object.assign(t, { type: document.getElementById('f-type').value, desc, value, project: document.getElementById('f-project').value, date: document.getElementById('f-date').value });
+    saveTransactions(); renderFinancial(); toast('Lançamento atualizado!');
+  });
+}
+
+function delTransaction(id) {
+  openConfirm(() => {
+    S.transactions = S.transactions.filter(x => x.id !== id);
+    saveTransactions(); renderFinancial(); toast('Lançamento excluído.', 'info');
+  });
+}
+
+/* ===== PROMPTS & DOCS ===== */
+function renderPrompts(filter) {
+  if (filter !== undefined) S.promptFilter = filter;
+  const f = S.promptFilter;
+  let list = f === 'all' ? [...S.docs] : S.docs.filter(d => d.category === f);
+  const q = (document.getElementById('globalSearch').value || '').toLowerCase();
+  if (q && S.section === 'prompts') list = list.filter(d => d.title.toLowerCase().includes(q) || (d.content||'').toLowerCase().includes(q));
+
+  document.querySelectorAll('#section-prompts .ftab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.filter === f);
+  });
+
+  const grid = document.getElementById('promptsGrid');
+  if (!list.length) {
+    grid.innerHTML = `<div class="empty-state"><div class="empty-icon"><i class='bx bx-file-blank'></i></div><div class="empty-title">Nenhum documento encontrado</div><div class="empty-sub">Guarde prompts, scripts, estratégias e briefings aqui.</div></div>`;
+    return;
+  }
+  const catColors = { 'Prompt': 'badge-purple', 'Script': 'badge-blue', 'Estratégia': 'badge-green', 'Briefing': 'badge-amber', 'Texto de venda': 'badge-red', 'Anotação': 'badge-gray' };
+  grid.innerHTML = list.map(d => `
+    <div class="prompt-card" data-id="${d.id}">
+      <div class="prompt-card-top">
+        <div class="prompt-card-head">
+          <div class="prompt-card-title">${escHtml(d.title)}</div>
+          <div class="prompt-actions">
+            <button class="btn-icon green" title="Copiar" onclick="copyDoc('${d.id}')"><i class='bx bx-copy'></i></button>
+            <button class="btn-icon" onclick="editDoc('${d.id}')"><i class='bx bx-edit-alt'></i></button>
+            <button class="btn-icon danger" onclick="delDoc('${d.id}')"><i class='bx bx-trash'></i></button>
+          </div>
+        </div>
+        <div class="prompt-preview">${escHtml(d.content)}</div>
+      </div>
+      <div class="prompt-card-foot">
+        <span class="badge ${catColors[d.category] || 'badge-gray'}">${escHtml(d.category)}</span>
+        <span class="prompt-meta">${escHtml(d.project || 'Geral')} · ${fmtDate(d.date)}</span>
+      </div>
+    </div>`).join('');
+}
+
+function docForm(d = {}) {
+  const projNames = getProjectNames();
+  const cats = ['Prompt','Script','Estratégia','Briefing','Texto de venda','Anotação'];
+  return `
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Título *</label>
+        <input class="form-input" id="f-title" placeholder="Título do documento" value="${escHtml(d.title||'')}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Categoria</label>
+        <select class="form-select" id="f-category">
+          ${cats.map(c => `<option${d.category===c?' selected':''}>${c}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Conteúdo *</label>
+      <textarea class="form-textarea" id="f-content" rows="8" placeholder="Cole ou escreva o conteúdo aqui...">${escHtml(d.content||'')}</textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Projeto relacionado</label>
+        <select class="form-select" id="f-project">
+          <option value="">— Geral —</option>
+          ${projNames.map(n => `<option${d.project===n?' selected':''}>${n}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Data</label>
+        <input class="form-input" id="f-date" type="date" value="${d.date || new Date().toISOString().slice(0,10)}">
+      </div>
+    </div>
+  `;
+}
+
+function newDoc() {
+  openModal('Novo Documento', docForm(), () => {
+    const title = document.getElementById('f-title').value.trim();
+    const content = document.getElementById('f-content').value.trim();
+    if (!title) { toast('Título obrigatório.', 'error'); return false; }
+    if (!content) { toast('Conteúdo obrigatório.', 'error'); return false; }
+    S.docs.unshift({ id: uid(), title, category: document.getElementById('f-category').value, content, project: document.getElementById('f-project').value, date: document.getElementById('f-date').value });
+    saveDocs(); renderPrompts(); toast('Documento criado!');
+  });
+}
+
+function editDoc(id) {
+  const d = S.docs.find(x => x.id === id);
+  if (!d) return;
+  openModal('Editar Documento', docForm(d), () => {
+    const title = document.getElementById('f-title').value.trim();
+    const content = document.getElementById('f-content').value.trim();
+    if (!title) { toast('Título obrigatório.', 'error'); return false; }
+    if (!content) { toast('Conteúdo obrigatório.', 'error'); return false; }
+    Object.assign(d, { title, category: document.getElementById('f-category').value, content, project: document.getElementById('f-project').value, date: document.getElementById('f-date').value });
+    saveDocs(); renderPrompts(); toast('Documento atualizado!');
+  });
+}
+
+function delDoc(id) {
+  openConfirm(() => {
+    S.docs = S.docs.filter(x => x.id !== id);
+    saveDocs(); renderPrompts(); toast('Documento excluído.', 'info');
+  });
+}
+
+function copyDoc(id) {
+  const d = S.docs.find(x => x.id === id);
+  if (!d) return;
+  navigator.clipboard.writeText(d.content).then(() => toast('Conteúdo copiado!')).catch(() => {
+    const el = document.createElement('textarea');
+    el.value = d.content; document.body.appendChild(el); el.select(); document.execCommand('copy'); el.remove();
+    toast('Conteúdo copiado!');
+  });
+}
+
+/* ===== PRIMARY BUTTON ACTIONS ===== */
+function primaryAction() {
+  const actions = {
+    projects: () => newProject(),
+    tasks: () => newTask(),
+    habits: () => newHabit(),
+    ideas: () => newIdea(),
+    goals: () => newGoal(),
+    crm: () => newContact(),
+    financial: () => newTransaction(),
+    review: () => newReview(),
+    prompts: () => newDoc()
+  };
+  if (actions[S.section]) actions[S.section]();
+}
+
+/* ===== HABIT HELPERS ===== */
+function getLast21Days() {
+  const days = [];
+  for (let i = 20; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    days.push(d.toISOString().slice(0, 10));
+  }
+  return days;
+}
+
+function calcStreak(h) {
+  let streak = 0;
+  const now = new Date();
+  for (let i = 0; i <= 365; i++) {
+    const d = new Date(now); d.setDate(d.getDate() - i);
+    const ds = d.toISOString().slice(0, 10);
+    if (h.completions.includes(ds)) { streak++; }
+    else if (i === 0) { continue; }
+    else { break; }
+  }
+  return streak;
+}
+
+/* ===== HABITS ===== */
+function renderHabits() {
+  const today = new Date().toISOString().slice(0, 10);
+  const done = S.habits.filter(h => h.completions.includes(today)).length;
+  const total = S.habits.length;
+  const pct = total ? Math.round((done / total) * 100) : 0;
+  const r = 30, circ = 2 * Math.PI * r;
+  const offset = circ - (pct / 100) * circ;
+  const bestStreak = S.habits.reduce((max, h) => Math.max(max, calcStreak(h)), 0);
+  const totalToday = S.habits.reduce((sum, h) => sum + h.completions.filter(c => c === today).length, 0);
+
+  document.getElementById('habitsOverview').innerHTML = `
+    <div class="hov-info">
+      <div class="hov-label">Hábitos concluídos hoje</div>
+      <div class="hov-val">${done}<span style="font-size:18px;color:var(--text3);font-weight:500"> / ${total}</span></div>
+      <div class="hov-sub">${pct}% da meta diária</div>
+    </div>
+    <div class="hov-stats">
+      <div class="hov-stat">
+        <div class="hov-stat-val">${bestStreak}</div>
+        <div class="hov-stat-label">Maior streak</div>
+      </div>
+      <div class="hov-stat">
+        <div class="hov-stat-val">${S.habits.length}</div>
+        <div class="hov-stat-label">Hábitos ativos</div>
+      </div>
+    </div>
+    <div class="hov-ring-wrap">
+      <svg width="72" height="72" viewBox="0 0 72 72">
+        <circle class="ring-bg" cx="36" cy="36" r="${r}" stroke-width="6"/>
+        <circle class="ring-fill" cx="36" cy="36" r="${r}" stroke-width="6"
+          stroke="var(--accent)"
+          stroke-dasharray="${circ}"
+          stroke-dashoffset="${offset}"/>
+      </svg>
+      <div class="hov-ring-label" style="color:var(--accent)">${pct}%</div>
+    </div>
+  `;
+
+  const grid = document.getElementById('habitsGrid');
+  if (!S.habits.length) {
+    grid.innerHTML = `<div class="empty-state" style="grid-column:1/-1"><div class="empty-icon"><i class='bx bx-calendar-check'></i></div><div class="empty-title">Nenhum hábito cadastrado</div><div class="empty-sub">Adicione hábitos diários para acompanhar sua consistência.</div></div>`;
+    return;
+  }
+  const days = getLast21Days();
+  grid.innerHTML = S.habits.map(h => {
+    const isDone = h.completions.includes(today);
+    const streak = calcStreak(h);
+    const dots = days.map(d => {
+      if (d === today && !isDone) return `<div class="streak-dot today-ring" title="Hoje"></div>`;
+      if (h.completions.includes(d)) return `<div class="streak-dot filled" title="${d}"></div>`;
+      return `<div class="streak-dot" title="${d}"></div>`;
+    }).join('');
+    return `
+      <div class="habit-card${isDone ? ' done' : ''}">
+        <div class="habit-card-main">
+          <div class="habit-icon"><i class='bx ${escHtml(h.icon)}'></i></div>
+          <div class="habit-info">
+            <div class="habit-name">${escHtml(h.name)}</div>
+            <div class="habit-streak-row">
+              <span class="habit-streak-txt"><i class='bx bx-flame'></i>${streak} dia${streak !== 1 ? 's' : ''} seguido${streak !== 1 ? 's' : ''}</span>
+              <span class="badge badge-gray">${escHtml(h.category)}</span>
+            </div>
+          </div>
+          <button class="habit-check-btn" onclick="toggleHabitToday('${h.id}')">
+            <i class='bx ${isDone ? 'bx-check' : 'bx-plus'}'></i>
+          </button>
+        </div>
+        <div class="streak-row">${dots}</div>
+        <div class="habit-card-foot">
+          <span style="font-size:11px;color:var(--text3)">${isDone ? '✓ Concluído hoje' : 'Pendente hoje'}</span>
+          <div class="habit-actions">
+            <button class="btn-icon green" onclick="editHabit('${h.id}')"><i class='bx bx-edit-alt'></i></button>
+            <button class="btn-icon danger" onclick="delHabit('${h.id}')"><i class='bx bx-trash'></i></button>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function toggleHabitToday(id) {
+  const h = S.habits.find(x => x.id === id);
+  if (!h) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const idx = h.completions.indexOf(today);
+  if (idx === -1) { h.completions.push(today); toast(`${h.name} concluído!`); }
+  else { h.completions.splice(idx, 1); toast(`${h.name} desmarcado.`, 'info'); }
+  saveHabits();
+  renderHabits();
+}
+
+function habitForm(h = {}) {
+  const icons = ['bx-book-open','bx-run','bx-check-double','bx-phone-call','bx-brain','bx-dumbbell','bx-water','bx-coffee','bx-pencil','bx-sun','bx-moon','bx-heart','bx-music','bx-code-alt','bx-dollar'];
+  const cats = ['Saúde','Foco','Negócio','Desenvolvimento','Bem-estar','Aprendizado'];
+  return `
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Nome do Hábito *</label>
+        <input class="form-input" id="f-name" placeholder="Ex: Leitura 30 min" value="${escHtml(h.name || '')}">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Categoria</label>
+        <select class="form-select" id="f-category">
+          ${cats.map(c => `<option${h.category === c ? ' selected' : ''}>${c}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Ícone</label>
+      <select class="form-select" id="f-icon">
+        ${icons.map(i => `<option value="${i}"${h.icon === i ? ' selected' : ''}>${i.replace('bx-', '')}</option>`).join('')}
+      </select>
+    </div>
+  `;
+}
+
+function newHabit() {
+  openModal('Novo Hábito', habitForm(), () => {
+    const name = document.getElementById('f-name').value.trim();
+    if (!name) { toast('Nome obrigatório.', 'error'); return false; }
+    S.habits.push({ id: uid(), name, category: document.getElementById('f-category').value, icon: document.getElementById('f-icon').value, completions: [] });
+    saveHabits(); renderHabits(); toast('Hábito criado!');
+  });
+}
+
+function editHabit(id) {
+  const h = S.habits.find(x => x.id === id);
+  if (!h) return;
+  openModal('Editar Hábito', habitForm(h), () => {
+    const name = document.getElementById('f-name').value.trim();
+    if (!name) { toast('Nome obrigatório.', 'error'); return false; }
+    Object.assign(h, { name, category: document.getElementById('f-category').value, icon: document.getElementById('f-icon').value });
+    saveHabits(); renderHabits(); toast('Hábito atualizado!');
+  });
+}
+
+function delHabit(id) {
+  openConfirm(() => {
+    S.habits = S.habits.filter(x => x.id !== id);
+    saveHabits(); renderHabits(); toast('Hábito excluído.', 'info');
+  });
+}
+
+/* ===== GOAL HELPERS ===== */
+function goalProgress(goal) {
+  if (!goal.keyResults.length) return 0;
+  const sum = goal.keyResults.reduce((s, kr) => s + Math.min(100, (+kr.target > 0 ? Math.round((+kr.current / +kr.target) * 100) : 0)), 0);
+  return Math.round(sum / goal.keyResults.length);
+}
+
+function goalStatusClass(s) {
+  return { 'No prazo': 'status-green', 'Em risco': 'status-amber', 'Atrasado': 'status-red', 'Concluído': 'status-blue' }[s] || 'status-gray';
+}
+
+function krColor(pct) {
+  if (pct >= 80) return 'var(--green)';
+  if (pct >= 50) return 'var(--accent)';
+  if (pct >= 25) return 'var(--amber)';
+  return 'var(--red)';
+}
+
+/* ===== GOALS ===== */
+function renderGoals() {
+  const grid = document.getElementById('goalsGrid');
+  if (!S.goals.length) {
+    grid.innerHTML = `<div class="empty-state"><div class="empty-icon"><i class='bx bx-target-lock'></i></div><div class="empty-title">Nenhuma meta definida</div><div class="empty-sub">Defina objetivos trimestrais e acompanhe o progresso com Key Results.</div></div>`;
+    return;
+  }
+  grid.innerHTML = S.goals.map(g => {
+    const pct = goalProgress(g);
+    const krsHTML = g.keyResults.map(kr => {
+      const kpct = kr.target > 0 ? Math.min(100, Math.round((+kr.current / +kr.target) * 100)) : 0;
+      const col = krColor(kpct);
+      return `
+        <div class="kr-item">
+          <div class="kr-dot" style="background:${col}"></div>
+          <div class="kr-info">
+            <div class="kr-desc">${escHtml(kr.desc)}</div>
+            <div class="kr-bar-row">
+              <div class="kr-bar"><div class="kr-bar-fill" style="width:${kpct}%;background:${col}"></div></div>
+              <span class="kr-val">${kr.current} / ${kr.target} ${escHtml(kr.unit)}</span>
+              <span class="kr-pct" style="color:${col}">${kpct}%</span>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+    return `
+      <div class="goal-card">
+        <div class="goal-card-top">
+          <div>
+            <div class="goal-objective">${escHtml(g.objective)}</div>
+            <div class="goal-meta">
+              <span class="badge badge-blue">${escHtml(g.quarter)}</span>
+              <span class="status-badge ${goalStatusClass(g.status)}">${escHtml(g.status)}</span>
+            </div>
+          </div>
+          <div class="goal-actions">
+            <button class="btn-icon green" onclick="editGoal('${g.id}')"><i class='bx bx-edit-alt'></i></button>
+            <button class="btn-icon danger" onclick="delGoal('${g.id}')"><i class='bx bx-trash'></i></button>
+          </div>
+        </div>
+        <div class="goal-progress-wrap">
+          <div class="goal-progress-top">
+            <span class="goal-progress-lbl">Progresso geral</span>
+            <span class="goal-progress-pct">${pct}%</span>
+          </div>
+          <div class="goal-bar"><div class="goal-bar-fill" style="width:${pct}%"></div></div>
+        </div>
+        ${g.keyResults.length ? `<div class="goal-krs">${krsHTML}</div>` : ''}
+      </div>`;
+  }).join('');
+}
+
+function krRowHTML(kr = {}) {
+  _krCounter++;
+  const rid = 'kr' + _krCounter;
+  return `
+    <div class="kr-form-row" id="${rid}">
+      <input class="form-input" style="flex:1" placeholder="Descrição do Key Result" value="${escHtml(kr.desc || '')}">
+      <input class="form-input" type="number" style="width:80px;min-width:80px" placeholder="Atual" value="${kr.current !== undefined ? kr.current : ''}">
+      <input class="form-input" type="number" style="width:80px;min-width:80px" placeholder="Meta" value="${kr.target !== undefined ? kr.target : ''}">
+      <input class="form-input" style="width:90px;min-width:90px" placeholder="Unidade" value="${escHtml(kr.unit || '')}">
+      <button class="btn-icon danger" type="button" onclick="document.getElementById('${rid}').remove()"><i class='bx bx-trash'></i></button>
+    </div>`;
+}
+
+function addKRRow() {
+  const c = document.getElementById('krsContainer');
+  if (c) c.insertAdjacentHTML('beforeend', krRowHTML());
+}
+
+function goalForm(g = {}) {
+  _krCounter = 0;
+  const quarters = ['Q1 2025', 'Q2 2025', 'Q3 2025', 'Q4 2025', 'Q1 2026', 'Q2 2026', 'Q3 2026'];
+  const krsHTML = (g.keyResults || []).map(kr => krRowHTML(kr)).join('');
+  return `
+    <div class="form-group">
+      <label class="form-label">Objetivo *</label>
+      <input class="form-input" id="f-objective" placeholder="Ex: Validar o Cotai comercialmente" value="${escHtml(g.objective || '')}">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Trimestre</label>
+        <select class="form-select" id="f-quarter">
+          ${quarters.map(q => `<option${g.quarter === q ? ' selected' : ''}>${q}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Status</label>
+        <select class="form-select" id="f-gstatus">
+          ${['No prazo', 'Em risco', 'Atrasado', 'Concluído'].map(s => `<option${g.status === s ? ' selected' : ''}>${s}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Key Results</label>
+      <div style="display:flex;gap:6px;margin-bottom:6px;padding:0 2px">
+        <span style="flex:1;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Descrição</span>
+        <span style="width:80px;min-width:80px;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Atual</span>
+        <span style="width:80px;min-width:80px;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Meta</span>
+        <span style="width:90px;min-width:90px;font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px">Unidade</span>
+        <span style="width:30px"></span>
+      </div>
+      <div id="krsContainer" style="display:flex;flex-direction:column;gap:8px">${krsHTML}</div>
+      <button class="btn-ghost" type="button" onclick="addKRRow()" style="margin-top:10px;width:100%;justify-content:center">
+        <i class='bx bx-plus'></i> Adicionar Key Result
+      </button>
+    </div>`;
+}
+
+function collectKRs() {
+  return Array.from(document.querySelectorAll('#krsContainer .kr-form-row')).map(row => {
+    const inputs = row.querySelectorAll('input');
+    return { id: uid(), desc: inputs[0].value.trim(), current: +inputs[1].value || 0, target: +inputs[2].value || 1, unit: inputs[3].value.trim() };
+  }).filter(kr => kr.desc);
+}
+
+function newGoal() {
+  openModal('Nova Meta / OKR', goalForm(), () => {
+    const objective = document.getElementById('f-objective').value.trim();
+    if (!objective) { toast('Objetivo obrigatório.', 'error'); return false; }
+    S.goals.unshift({ id: uid(), objective, quarter: document.getElementById('f-quarter').value, status: document.getElementById('f-gstatus').value, keyResults: collectKRs() });
+    saveGoals(); renderGoals(); toast('Meta criada!');
+  });
+}
+
+function editGoal(id) {
+  const g = S.goals.find(x => x.id === id);
+  if (!g) return;
+  openModal('Editar Meta / OKR', goalForm(g), () => {
+    const objective = document.getElementById('f-objective').value.trim();
+    if (!objective) { toast('Objetivo obrigatório.', 'error'); return false; }
+    Object.assign(g, { objective, quarter: document.getElementById('f-quarter').value, status: document.getElementById('f-gstatus').value, keyResults: collectKRs() });
+    saveGoals(); renderGoals(); toast('Meta atualizada!');
+  });
+}
+
+function delGoal(id) {
+  openConfirm(() => {
+    S.goals = S.goals.filter(x => x.id !== id);
+    saveGoals(); renderGoals(); toast('Meta excluída.', 'info');
+  });
+}
+
+/* ===== REVIEW HELPERS ===== */
+function getWeekStart(date = new Date()) {
+  const d = new Date(date);
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+  d.setDate(diff);
+  return d.toISOString().slice(0, 10);
+}
+
+function weekLabel(dateStr) {
+  if (!dateStr) return '—';
+  const [y, m, day] = dateStr.split('-').map(Number);
+  const start = new Date(y, m - 1, day);
+  const end = new Date(start); end.setDate(end.getDate() + 6);
+  const ms = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+  return `${day} ${ms[m - 1]} – ${end.getDate()} ${ms[end.getMonth()]}`;
+}
+
+function selectMood(n) {
+  _selectedMood = n;
+  document.querySelectorAll('.mood-opt').forEach(el => {
+    el.classList.toggle('selected', +el.dataset.mood === n);
+  });
+}
+
+const MOODS = [
+  { v: 1, e: '😔', l: 'Difícil', bg: 'rgba(255,71,87,0.15)' },
+  { v: 2, e: '😐', l: 'Regular', bg: 'rgba(255,255,255,0.07)' },
+  { v: 3, e: '🙂', l: 'Ok',      bg: 'rgba(245,166,35,0.12)' },
+  { v: 4, e: '😊', l: 'Boa',     bg: 'rgba(37,99,235,0.12)' },
+  { v: 5, e: '🚀', l: 'Incrível', bg: 'rgba(34,197,94,0.15)' }
+];
+
+/* ===== REVIEW ===== */
+function renderReview() {
+  const list = document.getElementById('reviewList');
+  if (!S.reviews.length) {
+    list.innerHTML = `<div class="empty-state"><div class="empty-icon"><i class='bx bx-notepad'></i></div><div class="empty-title">Nenhuma revisão registrada</div><div class="empty-sub">Faça uma revisão semanal toda sexta-feira para manter clareza sobre o que está funcionando.</div></div>`;
+    return;
+  }
+  const sorted = [...S.reviews].sort((a, b) => (b.weekOf || '').localeCompare(a.weekOf || ''));
+  list.innerHTML = sorted.map(r => {
+    const mood = MOODS.find(m => m.v === r.mood) || MOODS[2];
+    return `
+      <div class="review-card" id="rv-${r.id}">
+        <div class="review-card-head" onclick="toggleReview('${r.id}')">
+          <div class="review-head-left">
+            <div class="review-mood-icon" style="background:${mood.bg}">${mood.e}</div>
+            <div>
+              <div class="review-week-label">Semana de ${weekLabel(r.weekOf)}</div>
+              <div class="review-week-date">Registrado em ${fmtDate(r.createdAt)} · Humor: ${mood.l}</div>
+            </div>
+          </div>
+          <div class="review-head-right">
+            <div class="review-actions">
+              <button class="btn-icon danger" onclick="event.stopPropagation();delReview('${r.id}')"><i class='bx bx-trash'></i></button>
+            </div>
+            <i class='bx bx-chevron-down review-chevron'></i>
+          </div>
+        </div>
+        <div class="review-body">
+          <div class="rv-block">
+            <div class="rv-block-label">O que avancei</div>
+            <div class="rv-block-text">${escHtml(r.advances || '—')}</div>
+          </div>
+          <div class="rv-block">
+            <div class="rv-block-label">O que me bloqueou</div>
+            <div class="rv-block-text">${escHtml(r.blockers || '—')}</div>
+          </div>
+          <div class="rv-block">
+            <div class="rv-block-label">Aprendizados</div>
+            <div class="rv-block-text">${escHtml(r.learnings || '—')}</div>
+          </div>
+          <div class="rv-block">
+            <div class="rv-block-label">Foco da próxima semana</div>
+            <div class="rv-block-text">${escHtml(r.nextFocus || '—')}</div>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function toggleReview(id) {
+  const card = document.getElementById('rv-' + id);
+  if (card) card.classList.toggle('open');
+}
+
+function reviewForm(r = {}) {
+  _selectedMood = r.mood || 3;
+  const moodOpts = MOODS.map(m => `
+    <div class="mood-opt${_selectedMood === m.v ? ' selected' : ''}" data-mood="${m.v}" onclick="selectMood(${m.v})">
+      <span class="mood-emoji">${m.e}</span>
+      <span class="mood-lbl">${m.l}</span>
+    </div>`).join('');
+  return `
+    <div class="form-group">
+      <label class="form-label">Semana de</label>
+      <input class="form-input" id="f-weekof" type="date" value="${r.weekOf || getWeekStart()}">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Como foi a semana?</label>
+      <div class="mood-selector">${moodOpts}</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">O que avancei?</label>
+      <textarea class="form-textarea" id="f-advances" rows="3" placeholder="Principais avanços da semana...">${escHtml(r.advances || '')}</textarea>
+    </div>
+    <div class="form-group">
+      <label class="form-label">O que me bloqueou?</label>
+      <textarea class="form-textarea" id="f-blockers" rows="3" placeholder="Obstáculos, distrações, gargalos...">${escHtml(r.blockers || '')}</textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Aprendizados</label>
+        <textarea class="form-textarea" id="f-learnings" rows="3" placeholder="O que aprendi esta semana...">${escHtml(r.learnings || '')}</textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Foco da próxima semana</label>
+        <textarea class="form-textarea" id="f-nextfocus" rows="3" placeholder="Prioridades para a próxima semana...">${escHtml(r.nextFocus || '')}</textarea>
+      </div>
+    </div>`;
+}
+
+function newReview() {
+  openModal('Nova Revisão Semanal', reviewForm(), () => {
+    const weekOf = document.getElementById('f-weekof').value;
+    if (!weekOf) { toast('Defina a semana.', 'error'); return false; }
+    S.reviews.unshift({
+      id: uid(),
+      weekOf,
+      mood: _selectedMood,
+      advances: document.getElementById('f-advances').value.trim(),
+      blockers: document.getElementById('f-blockers').value.trim(),
+      learnings: document.getElementById('f-learnings').value.trim(),
+      nextFocus: document.getElementById('f-nextfocus').value.trim(),
+      createdAt: new Date().toISOString().slice(0, 10)
+    });
+    saveReviews(); renderReview(); toast('Revisão registrada!');
+  });
+}
+
+function delReview(id) {
+  openConfirm(() => {
+    S.reviews = S.reviews.filter(x => x.id !== id);
+    saveReviews(); renderReview(); toast('Revisão excluída.', 'info');
+  });
+}
+
+
+/* ===== EVENT LISTENERS ===== */
+function bindEvents() {
+  // Sidebar navigation
+  document.querySelectorAll('.nav-item').forEach(item => {
+    item.addEventListener('click', e => {
+      e.preventDefault();
+      navigateTo(item.dataset.section);
+    });
+  });
+
+  // Dashboard panel links
+  document.addEventListener('click', e => {
+    const link = e.target.closest('[data-section]');
+    if (link && !link.classList.contains('nav-item')) {
+      e.preventDefault();
+      navigateTo(link.dataset.section);
+    }
+  });
+
+  // Sidebar toggle
+  document.getElementById('sidebarToggle').addEventListener('click', () => {
+    document.getElementById('sidebar').classList.toggle('collapsed');
+  });
+
+  // Primary action button
+  document.getElementById('primaryBtn').addEventListener('click', primaryAction);
+
+  // Modal
+  document.getElementById('modalSave').addEventListener('click', () => {
+    if (S.modalSave && S.modalSave() !== false) closeModal();
+    else if (!S.modalSave) closeModal();
+  });
+  document.getElementById('modalCancel').addEventListener('click', closeModal);
+  document.getElementById('modalClose').addEventListener('click', closeModal);
+  document.getElementById('modalOverlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('modalOverlay')) closeModal();
+  });
+
+  // Confirm
+  document.getElementById('confirmOk').addEventListener('click', () => {
+    if (S.confirmOk) S.confirmOk();
+    closeConfirm();
+  });
+  document.getElementById('confirmCancel').addEventListener('click', closeConfirm);
+  document.getElementById('confirmOverlay').addEventListener('click', e => {
+    if (e.target === document.getElementById('confirmOverlay')) closeConfirm();
+  });
+
+  // Escape key
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { closeModal(); closeConfirm(); }
+  });
+
+  // Project filters
+  document.querySelectorAll('#section-projects .ftab').forEach(btn => {
+    btn.addEventListener('click', () => renderProjects(btn.dataset.filter));
+  });
+
+  // Prompt filters
+  document.querySelectorAll('#section-prompts .ftab').forEach(btn => {
+    btn.addEventListener('click', () => renderPrompts(btn.dataset.filter));
+  });
+
+  // Financial filters
+  document.querySelectorAll('#section-financial .ftab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      S.finFilter = btn.dataset.filter;
+      renderFinancial();
+    });
+  });
+
+  // Kanban "add task" buttons
+  document.querySelectorAll('.k-add').forEach(btn => {
+    btn.addEventListener('click', () => newTask(btn.dataset.col));
+  });
+
+  // Global search
+  document.getElementById('globalSearch').addEventListener('input', () => {
+    renderSection(S.section);
+  });
+}
+
+/* ===== LOGIN ===== */
+function showLoader() {
+  document.getElementById('loaderScreen').style.display = 'flex';
+}
+
+function showLoginError(msg) {
+  const err = document.getElementById('loginError');
+  err.innerHTML = `<i class='bx bx-error-circle'></i> ${msg}`;
+  err.style.display = 'flex';
+}
+
+async function doLogin() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass  = document.getElementById('loginPassword').value;
+  const btn   = document.getElementById('loginBtn');
+  const input = document.getElementById('loginPassword');
+
+  if (!email || !pass) { showLoginError('Preencha e-mail e senha.'); return; }
+  document.getElementById('loginError').style.display = 'none';
+
+  btn.disabled = true;
+  btn.innerHTML = `<i class='bx bx-loader-alt bx-spin'></i> Entrando...`;
+
+  const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
+
+  if (error) {
+    btn.disabled = false;
+    btn.innerHTML = `<i class='bx bx-log-in-circle'></i> Entrar`;
+    showLoginError('E-mail ou senha incorretos.');
+    input.classList.remove('input-shake');
+    void input.offsetWidth;
+    input.classList.add('input-shake');
+    return;
+  }
+
+  currentUserId = data.user.id;
+  const loginScreen = document.getElementById('loginScreen');
+  loginScreen.classList.add('out');
+  setTimeout(async () => {
+    loginScreen.remove();
+    showLoader();
+    await startApp();
+  }, 450);
+}
+
+async function startApp() {
+  const existingData = await loadAll();
+  seedIfEmpty(existingData);
+  seedV2(existingData);
+  bindEvents();
+  navigateTo('dashboard');
+  setTimeout(() => {
+    const loader = document.getElementById('loaderScreen');
+    if (loader) { loader.classList.add('out'); setTimeout(() => loader.remove(), 580); }
+  }, 3000);
+}
+
+/* ===== INIT ===== */
+document.addEventListener('DOMContentLoaded', async () => {
+  const { data: { session } } = await sb.auth.getSession();
+
+  if (session) {
+    currentUserId = session.user.id;
+    document.getElementById('loginScreen').remove();
+    showLoader();
+    await startApp();
+    return;
+  }
+
+  document.getElementById('loginBtn').addEventListener('click', doLogin);
+  document.getElementById('loginEmail').addEventListener('keydown', e => {
+    if (e.key === 'Enter') document.getElementById('loginPassword').focus();
+  });
+  document.getElementById('loginPassword').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doLogin();
+  });
+});
