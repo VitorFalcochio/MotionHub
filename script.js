@@ -188,6 +188,7 @@ function seedV2(existingData) {
 /* ===== NAVIGATION ===== */
 const sectionMeta = {
   dashboard:  { label: 'Dashboard',        btnLabel: null },
+  agenda:     { label: 'Agenda',           btnLabel: 'Nova Tarefa' },
   projects:   { label: 'Projetos',          btnLabel: 'Novo Projeto' },
   tasks:      { label: 'Tarefas',           btnLabel: 'Nova Tarefa' },
   habits:     { label: 'Hábitos',           btnLabel: 'Novo Hábito' },
@@ -222,7 +223,8 @@ function navigateTo(section) {
 }
 
 function renderSection(section) {
-  if (section === 'dashboard') renderDashboard();
+  if (section === 'agenda') renderAgenda();
+  else if (section === 'dashboard') renderDashboard();
   else if (section === 'projects') renderProjects();
   else if (section === 'tasks') renderKanban();
   else if (section === 'habits') renderHabits();
@@ -1100,6 +1102,7 @@ function copyDoc(id) {
 /* ===== PRIMARY BUTTON ACTIONS ===== */
 function primaryAction() {
   const actions = {
+    agenda:   () => newTask(_calSelected || ''),
     projects: () => newProject(),
     tasks: () => newTask(),
     habits: () => newHabit(),
@@ -1588,6 +1591,103 @@ function delReview(id) {
   });
 }
 
+
+/* ===== AGENDA ===== */
+let _calYear = new Date().getFullYear();
+let _calMonth = new Date().getMonth();
+let _calSelected = null;
+
+const CAL_MONTHS = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const CAL_DAYS   = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
+
+function renderAgenda() {
+  const today = new Date().toISOString().slice(0, 10);
+  const year  = _calYear;
+  const month = _calMonth;
+
+  const firstDay = new Date(year, month, 1);
+  const lastDay  = new Date(year, month + 1, 0);
+  let startDow = firstDay.getDay();
+  startDow = startDow === 0 ? 6 : startDow - 1;
+
+  let cells = '';
+  for (let i = 0; i < startDow; i++) cells += `<div class="cal-cell cal-empty"></div>`;
+
+  for (let d = 1; d <= lastDay.getDate(); d++) {
+    const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const isToday = ds === today;
+    const isSel   = ds === _calSelected;
+    const dayTasks = S.tasks.filter(t => t.due === ds && t.col !== 'done');
+    const dots = dayTasks.slice(0, 3).map(t => {
+      const c = t.priority === 'Alta' ? 'red' : t.priority === 'Média' ? 'amber' : 'blue';
+      return `<span class="cal-dot cal-dot-${c}"></span>`;
+    }).join('');
+    cells += `<div class="cal-cell${isToday?' is-today':''}${isSel?' is-selected':''}" onclick="selectCalDay('${ds}')">
+      <span class="cal-day-num">${d}</span>
+      <div class="cal-dots">${dots}</div>
+    </div>`;
+  }
+
+  let dayPanel = '';
+  if (_calSelected) {
+    const sel = _calSelected;
+    const [sy, sm, sd] = sel.split('-');
+    const label = `${parseInt(sd)} de ${CAL_MONTHS[parseInt(sm)-1]} de ${sy}`;
+    const selTasks = S.tasks.filter(t => t.due === sel && t.col !== 'done');
+    const doneTasks = S.tasks.filter(t => t.due === sel && t.col === 'done');
+
+    const taskRows = selTasks.length
+      ? selTasks.map(t => `
+          <div class="cal-task-item" onclick="navigateTo('tasks')">
+            <span class="prio prio-${t.priority==='Alta'?'high':t.priority==='Média'?'medium':'low'}">${t.priority}</span>
+            <span class="cal-task-title">${escHtml(t.title)}</span>
+            ${t.project ? `<span class="focus-proj">${escHtml(t.project)}</span>` : ''}
+          </div>`).join('')
+      : `<div class="notif-empty" style="padding:24px 0"><i class='bx bx-check-circle'></i><p>Nenhuma tarefa pendente</p></div>`;
+
+    dayPanel = `<div class="cal-day-panel">
+      <div class="cal-day-head">
+        <span class="cal-day-label">${label}</span>
+        ${selTasks.length ? `<span class="notif-panel-count">${selTasks.length} pendente${selTasks.length>1?'s':''}</span>` : ''}
+        ${doneTasks.length ? `<span class="notif-panel-count" style="background:var(--green-dim);color:var(--green)">${doneTasks.length} concluída${doneTasks.length>1?'s':''}</span>` : ''}
+      </div>
+      <div class="cal-task-list">${taskRows}</div>
+    </div>`;
+  }
+
+  document.getElementById('agendaView').innerHTML = `
+    <div class="cal-header">
+      <button class="btn-icon" onclick="calNav(-1)"><i class='bx bx-chevron-left'></i></button>
+      <h2 class="cal-month-label">${CAL_MONTHS[month]} ${year}</h2>
+      <button class="btn-icon" onclick="calNav(1)"><i class='bx bx-chevron-right'></i></button>
+      <button class="btn-ghost cal-today-btn" onclick="calGoToday()">Hoje</button>
+    </div>
+    <div class="cal-wrap">
+      <div class="cal-weekdays">${CAL_DAYS.map(d=>`<span>${d}</span>`).join('')}</div>
+      <div class="cal-grid">${cells}</div>
+    </div>
+    ${dayPanel}`;
+}
+
+function selectCalDay(ds) {
+  _calSelected = _calSelected === ds ? null : ds;
+  renderAgenda();
+}
+
+function calNav(dir) {
+  _calMonth += dir;
+  if (_calMonth > 11) { _calMonth = 0; _calYear++; }
+  if (_calMonth < 0)  { _calMonth = 11; _calYear--; }
+  renderAgenda();
+}
+
+function calGoToday() {
+  const now = new Date();
+  _calYear  = now.getFullYear();
+  _calMonth = now.getMonth();
+  _calSelected = now.toISOString().slice(0, 10);
+  renderAgenda();
+}
 
 /* ===== NOTIFICATIONS ===== */
 function buildNotifications() {
