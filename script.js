@@ -1910,11 +1910,527 @@ async function startApp() {
   seedIfEmpty(existingData);
   seedV2(existingData);
   bindEvents();
+  initJarvis();
   navigateTo('dashboard');
   setTimeout(() => {
     const loader = document.getElementById('loaderScreen');
     if (loader) { loader.classList.add('out'); setTimeout(() => loader.remove(), 580); }
   }, 3000);
+}
+
+/* ====================================================
+   JARVIS — Assistente Virtual (Groq)
+   ==================================================== */
+
+const JARVIS_MODEL    = 'llama-3.3-70b-versatile';
+const JARVIS_KEY_STORE = 'jarvis_groq_key';
+
+let jarvisOpen     = false;
+let jarvisMessages = [];
+let jarvisBusy     = false;
+let jarvisGreeted  = false;
+
+const JARVIS_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'get_summary',
+      description: 'Retorna resumo completo do Motion Hub: tarefas, projetos, hábitos, metas e financeiro.',
+      parameters: { type: 'object', properties: {}, required: [] }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_tasks',
+      description: 'Lista tarefas com filtro opcional por coluna do kanban.',
+      parameters: {
+        type: 'object',
+        properties: {
+          col: { type: 'string', enum: ['all','backlog','today','inprogress','done'] }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_task',
+      description: 'Cria uma nova tarefa no kanban.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title:    { type: 'string' },
+          project:  { type: 'string' },
+          priority: { type: 'string', enum: ['Alta','Média','Baixa'] },
+          due:      { type: 'string', description: 'YYYY-MM-DD (opcional)' },
+          col:      { type: 'string', enum: ['backlog','today','inprogress','done'] }
+        },
+        required: ['title','col']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_task',
+      description: 'Atualiza campos de uma tarefa (mover de coluna, prioridade, etc.).',
+      parameters: {
+        type: 'object',
+        properties: {
+          id:       { type: 'string' },
+          title:    { type: 'string' },
+          col:      { type: 'string', enum: ['backlog','today','inprogress','done'] },
+          priority: { type: 'string', enum: ['Alta','Média','Baixa'] },
+          due:      { type: 'string' },
+          project:  { type: 'string' }
+        },
+        required: ['id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_task',
+      description: 'Exclui uma tarefa pelo ID.',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string' } },
+        required: ['id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_projects',
+      description: 'Lista todos os projetos.',
+      parameters: { type: 'object', properties: {}, required: [] }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_project',
+      description: 'Cria um novo projeto.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name:     { type: 'string' },
+          desc:     { type: 'string' },
+          status:   { type: 'string', enum: ['Ideia','Em desenvolvimento','Validação','Lançado','Pausado'] },
+          priority: { type: 'string', enum: ['Alta','Média','Baixa'] },
+          progress: { type: 'number', minimum: 0, maximum: 100 }
+        },
+        required: ['name']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_habits',
+      description: 'Lista hábitos e status de conclusão de hoje.',
+      parameters: { type: 'object', properties: {}, required: [] }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'check_habit',
+      description: 'Marca ou desmarca um hábito como concluído hoje.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id:   { type: 'string' },
+          done: { type: 'boolean' }
+        },
+        required: ['id','done']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_goals',
+      description: 'Lista objetivos e OKRs.',
+      parameters: { type: 'object', properties: {}, required: [] }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_idea',
+      description: 'Registra uma nova ideia de negócio.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name:         { type: 'string' },
+          problem:      { type: 'string' },
+          audience:     { type: 'string' },
+          monetization: { type: 'string' },
+          potential:    { type: 'string', enum: ['Alto','Médio','Baixo'] },
+          status:       { type: 'string', enum: ['Em análise','Validando','Guardada'] },
+          notes:        { type: 'string' }
+        },
+        required: ['name']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'navigate_to',
+      description: 'Navega para uma seção do Motion Hub.',
+      parameters: {
+        type: 'object',
+        properties: {
+          section: {
+            type: 'string',
+            enum: ['dashboard','projects','tasks','habits','agenda','ideas','goals','crm','financial','review','prompts']
+          }
+        },
+        required: ['section']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_contacts',
+      description: 'Lista contatos do CRM.',
+      parameters: { type: 'object', properties: {}, required: [] }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'add_transaction',
+      description: 'Registra receita ou despesa no financeiro.',
+      parameters: {
+        type: 'object',
+        properties: {
+          type:    { type: 'string', enum: ['Receita','Despesa'] },
+          desc:    { type: 'string' },
+          value:   { type: 'number' },
+          project: { type: 'string' },
+          date:    { type: 'string', description: 'YYYY-MM-DD, padrão hoje' }
+        },
+        required: ['type','desc','value']
+      }
+    }
+  }
+];
+
+function jarvisRunTool(name, args) {
+  const today = new Date().toISOString().slice(0, 10);
+
+  switch (name) {
+    case 'get_summary': {
+      const income  = S.transactions.filter(t => t.type === 'Receita').reduce((a,t) => a + t.value, 0);
+      const expense = S.transactions.filter(t => t.type === 'Despesa').reduce((a,t) => a + t.value, 0);
+      return {
+        tasks: {
+          backlog:    S.tasks.filter(t => t.col === 'backlog').length,
+          today:      S.tasks.filter(t => t.col === 'today').length,
+          inprogress: S.tasks.filter(t => t.col === 'inprogress').length,
+          done:       S.tasks.filter(t => t.col === 'done').length
+        },
+        projects: {
+          total: S.projects.length,
+          byStatus: S.projects.reduce((a,p) => { a[p.status] = (a[p.status]||0)+1; return a; }, {})
+        },
+        habits: { total: S.habits.length, completedToday: S.habits.filter(h => (h.completions||[]).includes(today)).length },
+        goals:  { total: S.goals.length },
+        financial: { income, expense, balance: income - expense },
+        ideas:    { total: S.ideas.length },
+        contacts: { total: S.contacts.length }
+      };
+    }
+
+    case 'list_tasks': {
+      const col = args.col || 'all';
+      const list = col === 'all' ? S.tasks : S.tasks.filter(t => t.col === col);
+      return list.map(t => ({ id: t.id, title: t.title, project: t.project, priority: t.priority, due: t.due, col: t.col }));
+    }
+
+    case 'create_task': {
+      const t = { id: uid(), title: args.title, project: args.project||'', priority: args.priority||'Média', due: args.due||'', col: args.col||'backlog' };
+      S.tasks.push(t);
+      saveTasks();
+      renderKanban();
+      return { success: true, task: t };
+    }
+
+    case 'update_task': {
+      const i = S.tasks.findIndex(t => t.id === args.id);
+      if (i === -1) return { success: false, error: 'Tarefa não encontrada' };
+      ['title','col','priority','due','project'].forEach(f => { if (args[f] !== undefined) S.tasks[i][f] = args[f]; });
+      saveTasks();
+      renderKanban();
+      return { success: true, task: S.tasks[i] };
+    }
+
+    case 'delete_task': {
+      const before = S.tasks.length;
+      S.tasks = S.tasks.filter(t => t.id !== args.id);
+      saveTasks();
+      renderKanban();
+      return { success: S.tasks.length < before };
+    }
+
+    case 'list_projects':
+      return S.projects.map(p => ({ id: p.id, name: p.name, desc: p.desc, status: p.status, priority: p.priority, progress: p.progress }));
+
+    case 'create_project': {
+      const p = { id: uid(), name: args.name, desc: args.desc||'', status: args.status||'Ideia', priority: args.priority||'Média', progress: args.progress||0, createdAt: today };
+      S.projects.push(p);
+      saveProjects();
+      renderProjects(S.projectFilter);
+      return { success: true, project: p };
+    }
+
+    case 'list_habits':
+      return S.habits.map(h => ({
+        id: h.id, name: h.name, icon: h.icon, category: h.category,
+        completedToday: (h.completions||[]).includes(today),
+        totalCompletions: (h.completions||[]).length
+      }));
+
+    case 'check_habit': {
+      const h = S.habits.find(h => h.id === args.id);
+      if (!h) return { success: false, error: 'Hábito não encontrado' };
+      if (!h.completions) h.completions = [];
+      if (args.done && !h.completions.includes(today)) h.completions.push(today);
+      else if (!args.done) h.completions = h.completions.filter(d => d !== today);
+      saveHabits();
+      renderHabits();
+      return { success: true, name: h.name, completedToday: args.done };
+    }
+
+    case 'list_goals':
+      return S.goals.map(g => ({ id: g.id, objective: g.objective, quarter: g.quarter, status: g.status, keyResults: g.keyResults }));
+
+    case 'create_idea': {
+      const idea = { id: uid(), name: args.name, problem: args.problem||'', audience: args.audience||'', monetization: args.monetization||'', potential: args.potential||'Médio', status: args.status||'Em análise', notes: args.notes||'' };
+      S.ideas.push(idea);
+      saveIdeas();
+      renderIdeas();
+      return { success: true, idea };
+    }
+
+    case 'navigate_to':
+      navigateTo(args.section);
+      return { success: true, section: args.section };
+
+    case 'list_contacts':
+      return S.contacts.map(c => ({ id: c.id, name: c.name, type: c.type, company: c.company, status: c.status, nextStep: c.nextStep }));
+
+    case 'add_transaction': {
+      const tx = { id: uid(), type: args.type, desc: args.desc, value: args.value, project: args.project||'', date: args.date||today };
+      S.transactions.push(tx);
+      saveTransactions();
+      renderFinancial();
+      return { success: true, transaction: tx };
+    }
+
+    default:
+      return { error: `Ferramenta desconhecida: ${name}` };
+  }
+}
+
+async function jarvisCallGroq(messages) {
+  const key = localStorage.getItem(JARVIS_KEY_STORE);
+  const systemPrompt = `Você é o Jarvis, assistente pessoal de Vitor Falcão integrado ao Motion Hub — workspace para gerenciar projetos, tarefas, hábitos, metas, CRM, finanças e ideias de negócio.
+
+Hoje é ${new Date().toLocaleDateString('pt-BR', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}.
+
+Use as ferramentas disponíveis sempre que o usuário pedir para criar, mover, atualizar ou excluir dados. Responda sempre em português brasileiro. Seja conciso, direto e proativo. Ao executar ações, confirme brevemente o que foi feito.`;
+
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+    body: JSON.stringify({
+      model: JARVIS_MODEL,
+      messages: [{ role: 'system', content: systemPrompt }, ...messages],
+      tools: JARVIS_TOOLS,
+      tool_choice: 'auto',
+      parallel_tool_calls: false,
+      max_tokens: 1024
+    })
+  });
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message || `HTTP ${res.status}`);
+  }
+  const data = await res.json();
+  return data.choices[0];
+}
+
+async function jarvisCallGroqNoTools(messages) {
+  const key = localStorage.getItem(JARVIS_KEY_STORE);
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+    body: JSON.stringify({
+      model: JARVIS_MODEL,
+      messages,
+      max_tokens: 1024
+    })
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message || `HTTP ${res.status}`);
+  }
+  const data = await res.json();
+  return data.choices[0];
+}
+
+async function jarvisSend() {
+  const input = document.getElementById('jarvisInput');
+  const text  = input?.value?.trim();
+  if (!text || jarvisBusy) return;
+
+  const key = localStorage.getItem(JARVIS_KEY_STORE);
+  if (!key) { jarvisPromptKey(); return; }
+
+  input.value = '';
+  input.style.height = 'auto';
+  jarvisMessages.push({ role: 'user', content: text });
+  jarvisAppendMsg('user', text);
+  jarvisSetBusy(true);
+
+  try {
+    const jarvisFallbackMsgs = () => [
+      { role: 'system', content: `Você é o Jarvis, assistente pessoal de Vitor Falcão no Motion Hub. Responda em português brasileiro.` },
+      ...jarvisMessages
+    ];
+
+    let choice;
+    try {
+      choice = await jarvisCallGroq(jarvisMessages);
+      if (choice.finish_reason === 'failed_generation') throw new Error('failed_generation');
+    } catch (_) {
+      choice = await jarvisCallGroqNoTools(jarvisFallbackMsgs());
+    }
+
+    while (choice.finish_reason === 'tool_calls') {
+      const msg = choice.message;
+      jarvisMessages.push(msg);
+      for (const tc of msg.tool_calls) {
+        const result = jarvisRunTool(tc.function.name, JSON.parse(tc.function.arguments || '{}'));
+        jarvisMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
+      }
+      try {
+        choice = await jarvisCallGroq(jarvisMessages);
+        if (choice.finish_reason === 'failed_generation') throw new Error('failed_generation');
+      } catch (_) {
+        choice = await jarvisCallGroqNoTools(jarvisFallbackMsgs());
+      }
+    }
+
+    const reply = choice.message;
+    jarvisMessages.push(reply);
+    jarvisSetBusy(false);
+    jarvisAppendMsg('assistant', reply.content || '…');
+  } catch (err) {
+    jarvisSetBusy(false);
+    jarvisAppendMsg('error', err.message);
+  }
+}
+
+function jarvisAppendMsg(role, content) {
+  const list = document.getElementById('jarvisMsgList');
+  if (!list) return;
+  const div = document.createElement('div');
+  div.className = `jarvis-msg jarvis-msg-${role}`;
+  if (role === 'user') {
+    div.innerHTML = `<div class="jarvis-bubble">${jarvisEsc(content)}</div>`;
+  } else if (role === 'assistant') {
+    div.innerHTML = `<div class="jarvis-avatar-sm"><i class='bx bx-bot'></i></div><div class="jarvis-bubble">${jarvisMd(content)}</div>`;
+  } else {
+    div.innerHTML = `<div class="jarvis-bubble"><i class='bx bx-error-circle'></i> ${jarvisEsc(content)}</div>`;
+  }
+  list.appendChild(div);
+  list.scrollTop = list.scrollHeight;
+}
+
+function jarvisEsc(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+}
+
+function jarvisMd(s) {
+  return jarvisEsc(s)
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>');
+}
+
+function jarvisSetBusy(on) {
+  jarvisBusy = on;
+  const typing = document.getElementById('jarvisTyping');
+  const btn    = document.getElementById('jarvisSend');
+  if (typing) typing.style.display = on ? 'flex' : 'none';
+  if (btn)    btn.disabled = on;
+  if (!on) document.getElementById('jarvisMsgList')?.scrollTo(0, 999999);
+}
+
+function jarvisPromptKey() {
+  const key = prompt('Cole sua chave API do Groq (armazenada apenas no seu navegador):\n\nObtê-la em: console.groq.com/keys');
+  if (key?.trim()) {
+    localStorage.setItem(JARVIS_KEY_STORE, key.trim());
+    toast('Chave Groq salva!', 'success');
+  }
+}
+
+function jarvisToggle() {
+  jarvisOpen = !jarvisOpen;
+  document.getElementById('jarvisPanel')?.classList.toggle('open', jarvisOpen);
+  document.getElementById('jarvisBtn')?.classList.toggle('active', jarvisOpen);
+  if (jarvisOpen) {
+    if (!jarvisGreeted) {
+      jarvisGreeted = true;
+      jarvisAppendMsg('assistant', `Olá, **Vitor**! Sou o **Jarvis**, seu assistente no Motion Hub.\n\nPosso criar tarefas, mover cards no kanban, marcar hábitos, registrar ideias e muito mais — é só pedir!`);
+    }
+    setTimeout(() => document.getElementById('jarvisInput')?.focus(), 120);
+  }
+}
+
+function initJarvis() {
+  document.getElementById('jarvisBtn')?.addEventListener('click', e => { e.stopPropagation(); jarvisToggle(); });
+  document.getElementById('jarvisClose')?.addEventListener('click', () => {
+    jarvisOpen = false;
+    document.getElementById('jarvisPanel')?.classList.remove('open');
+    document.getElementById('jarvisBtn')?.classList.remove('active');
+  });
+  document.getElementById('jarvisSend')?.addEventListener('click', jarvisSend);
+  document.getElementById('jarvisInput')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); jarvisSend(); }
+  });
+  document.getElementById('jarvisInput')?.addEventListener('input', function () {
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 110) + 'px';
+  });
+  document.getElementById('jarvisClear')?.addEventListener('click', () => {
+    jarvisMessages = [];
+    jarvisGreeted  = false;
+    const list = document.getElementById('jarvisMsgList');
+    if (list) list.innerHTML = '';
+    jarvisAppendMsg('assistant', 'Conversa limpa. Como posso ajudar?');
+    jarvisGreeted = true;
+  });
+  document.getElementById('jarvisKeyBtn')?.addEventListener('click', jarvisPromptKey);
+  document.addEventListener('click', e => {
+    if (!jarvisOpen) return;
+    const panel = document.getElementById('jarvisPanel');
+    const btn   = document.getElementById('jarvisBtn');
+    if (panel && btn && !panel.contains(e.target) && !btn.contains(e.target)) {
+      jarvisOpen = false;
+      panel.classList.remove('open');
+      btn.classList.remove('active');
+    }
+  });
 }
 
 /* ===== INIT ===== */
