@@ -1866,8 +1866,15 @@ function bindEvents() {
   });
 
   // Global search
-  document.getElementById('globalSearch').addEventListener('input', () => {
-    renderSection(S.section);
+  document.getElementById('globalSearch').addEventListener('input', globalSearchHandler);
+  document.getElementById('globalSearch').addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      e.target.value = '';
+      globalSearchClose();
+    }
+  });
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.search-box')) globalSearchClose();
   });
 
   // Notifications
@@ -1938,6 +1945,85 @@ async function startApp() {
     const loader = document.getElementById('loaderScreen');
     if (loader) { loader.classList.add('out'); setTimeout(() => loader.remove(), 580); }
   }, 3000);
+}
+
+/* ====================================================
+   BUSCA GLOBAL
+   ==================================================== */
+
+function globalSearchClose() {
+  const panel = document.getElementById('searchResults');
+  if (panel) panel.classList.remove('open');
+}
+
+function globalSearchHandler() {
+  const q     = (document.getElementById('globalSearch').value || '').trim().toLowerCase();
+  const panel = document.getElementById('searchResults');
+  if (!panel) return;
+
+  if (q.length < 2) { globalSearchClose(); return; }
+
+  const groups = [];
+
+  const tasks = S.tasks.filter(t =>
+    t.title.toLowerCase().includes(q) || (t.project||'').toLowerCase().includes(q)
+  ).slice(0, 4);
+  if (tasks.length) groups.push({ label: 'Tarefas', icon: 'bx-check-square', bg: '--blue-dim', color: '--blue', section: 'tasks', items: tasks.map(t => ({ title: t.title, sub: t.project || 'Tarefa', id: null })) });
+
+  const projects = S.projects.filter(p =>
+    p.name.toLowerCase().includes(q) || (p.desc||'').toLowerCase().includes(q)
+  ).slice(0, 3);
+  if (projects.length) groups.push({ label: 'Projetos', icon: 'bx-folder-open', bg: '--amber-dim', color: '--amber', section: 'projects', items: projects.map(p => ({ title: p.name, sub: p.status, id: null })) });
+
+  const ideas = S.ideas.filter(i =>
+    i.name.toLowerCase().includes(q) || (i.problem||'').toLowerCase().includes(q)
+  ).slice(0, 3);
+  if (ideas.length) groups.push({ label: 'Ideias', icon: 'bx-bulb', bg: '--purple-dim', color: '--purple', section: 'ideas', items: ideas.map(i => ({ title: i.name, sub: i.status, id: null })) });
+
+  const notes = S.notes.filter(n =>
+    n.type === 'note' && (n.name.toLowerCase().includes(q) || (n.content||'').toLowerCase().includes(q))
+  ).slice(0, 5);
+  if (notes.length) groups.push({ label: 'Notas', icon: 'bx-notepad', bg: '--green-dim', color: '--green', section: 'notes', items: notes.map(n => {
+    const folder = n.parentId ? S.notes.find(f => f.id === n.parentId) : null;
+    return { title: n.name, sub: folder ? folder.name : 'Notas', noteId: n.id };
+  })});
+
+  const contacts = S.contacts.filter(c =>
+    c.name.toLowerCase().includes(q) || (c.company||'').toLowerCase().includes(q)
+  ).slice(0, 3);
+  if (contacts.length) groups.push({ label: 'CRM', icon: 'bx-user-circle', bg: '--blue-dim', color: '--blue', section: 'crm', items: contacts.map(c => ({ title: c.name, sub: c.company || 'Contato', id: null })) });
+
+  if (!groups.length) {
+    panel.innerHTML = `<div class="search-empty"><i class='bx bx-search-alt'></i>Nenhum resultado para "<strong>${q}</strong>"</div>`;
+    panel.classList.add('open');
+    return;
+  }
+
+  panel.innerHTML = groups.map((g, gi) => `
+    ${gi > 0 ? '<hr class="search-divider">' : ''}
+    <div class="search-group-label">${g.label}</div>
+    ${g.items.map(item => `
+      <div class="search-result-item" data-section="${g.section}" data-note-id="${item.noteId || ''}">
+        <div class="search-result-icon" style="background:var(${g.bg});color:var(${g.color})">
+          <i class='bx ${g.icon}'></i>
+        </div>
+        <div class="search-result-text">
+          <div class="search-result-title">${item.title}</div>
+          <div class="search-result-sub">${item.sub}</div>
+        </div>
+      </div>`).join('')}`).join('');
+
+  panel.querySelectorAll('.search-result-item').forEach(el => {
+    el.addEventListener('click', () => {
+      const { section, noteId } = el.dataset;
+      navigateTo(section);
+      if (section === 'notes' && noteId) setTimeout(() => notesOpenNote(noteId), 60);
+      document.getElementById('globalSearch').value = '';
+      globalSearchClose();
+    });
+  });
+
+  panel.classList.add('open');
 }
 
 /* ====================================================
@@ -2423,6 +2509,54 @@ const JARVIS_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'list_notes',
+      description: 'Lista pastas e notas do bloco de notas.',
+      parameters: { type: 'object', properties: {}, required: [] }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_notes',
+      description: 'Busca notas pelo nome ou conteúdo.',
+      parameters: {
+        type: 'object',
+        properties: { query: { type: 'string', description: 'Texto a buscar' } },
+        required: ['query']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_note',
+      description: 'Lê o conteúdo completo de uma nota pelo ID.',
+      parameters: {
+        type: 'object',
+        properties: { id: { type: 'string' } },
+        required: ['id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_note',
+      description: 'Cria uma nova nota, opcionalmente dentro de uma pasta existente.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name:        { type: 'string', description: 'Nome da nota' },
+          content:     { type: 'string', description: 'Conteúdo em markdown' },
+          folder_name: { type: 'string', description: 'Nome da pasta onde criar (opcional)' }
+        },
+        required: ['name']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'add_transaction',
       description: 'Registra receita ou despesa no financeiro.',
       parameters: {
@@ -2550,6 +2684,45 @@ function jarvisRunTool(name, args) {
       saveTransactions();
       renderFinancial();
       return { success: true, transaction: tx };
+    }
+
+    case 'list_notes': {
+      const folders = S.notes.filter(n => n.type === 'folder').map(f => ({
+        id: f.id, name: f.name,
+        notes: S.notes.filter(n => n.type === 'note' && n.parentId === f.id).map(n => ({ id: n.id, name: n.name, updatedAt: n.updatedAt }))
+      }));
+      const rootNotes = S.notes.filter(n => n.type === 'note' && !n.parentId).map(n => ({ id: n.id, name: n.name, updatedAt: n.updatedAt }));
+      return { folders, rootNotes };
+    }
+
+    case 'search_notes': {
+      const q = (args.query || '').toLowerCase();
+      const found = S.notes.filter(n => n.type === 'note' && (n.name.toLowerCase().includes(q) || (n.content||'').toLowerCase().includes(q)));
+      return found.map(n => {
+        const folder = n.parentId ? S.notes.find(f => f.id === n.parentId) : null;
+        const idx = (n.content||'').toLowerCase().indexOf(q);
+        const excerpt = idx >= 0 ? '…' + (n.content||'').slice(Math.max(0, idx - 40), idx + 80) + '…' : '';
+        return { id: n.id, name: n.name, folder: folder?.name || null, excerpt };
+      });
+    }
+
+    case 'read_note': {
+      const note = S.notes.find(n => n.id === args.id && n.type === 'note');
+      if (!note) return { success: false, error: 'Nota não encontrada' };
+      return { id: note.id, name: note.name, content: note.content, updatedAt: note.updatedAt };
+    }
+
+    case 'create_note': {
+      let parentId = null;
+      if (args.folder_name) {
+        const folder = S.notes.find(n => n.type === 'folder' && n.name.toLowerCase() === args.folder_name.toLowerCase());
+        if (folder) { parentId = folder.id; notesExpandedFolders.add(folder.id); }
+      }
+      const note = { id: uid(), type: 'note', name: args.name, content: args.content || '', parentId, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+      S.notes.push(note);
+      saveNotes();
+      if (S.section === 'notes') { renderNotesTree(); setTimeout(() => notesOpenNote(note.id), 50); }
+      return { success: true, note: { id: note.id, name: note.name, folder: args.folder_name || null } };
     }
 
     default:
