@@ -2030,10 +2030,13 @@ function globalSearchHandler() {
    NOTAS
    ==================================================== */
 
-let notesCurrentId      = null;
-let notesMode           = 'edit';
-let notesSaveTimer      = null;
+let notesCurrentId       = null;
+let notesSaveTimer       = null;
 let notesExpandedFolders = new Set();
+let ntbSavedRange        = null;
+
+const NTB_FG = ['#F0F2F8','#8A93A6','#545D70','#FFFFFF','#2563EB','#4D8EFF','#22C55E','#F5A623','#FF4757','#9B6DFF','#EC4899','#F97316'];
+const NTB_BG = [null,'rgba(37,99,235,0.28)','rgba(34,197,94,0.28)','rgba(245,166,35,0.28)','rgba(255,71,87,0.22)','rgba(155,109,255,0.28)','rgba(255,235,59,0.45)','rgba(255,105,180,0.28)'];
 
 function mdToHtml(md) {
   if (!md) return '';
@@ -2159,30 +2162,30 @@ function notesOpenNote(id) {
   const note = S.notes.find(n => n.id === id);
   if (!note || note.type !== 'note') return;
   notesCurrentId = id;
-  notesMode = 'edit';
 
-  document.getElementById('notesEmpty').style.display    = 'none';
-  document.getElementById('notesEditor').style.display   = 'flex';
-  document.getElementById('notesTitleInput').value        = note.name;
-  document.getElementById('notesTextarea').value          = note.content || '';
-  document.getElementById('notesPreviewArea').style.display = 'none';
-  document.getElementById('notesTextarea').style.display    = 'block';
-  document.getElementById('notesAutosave').textContent      = '';
+  document.getElementById('notesEmpty').style.display  = 'none';
+  document.getElementById('notesEditor').style.display = 'flex';
+  document.getElementById('notesTitleInput').value     = note.name;
+  document.getElementById('notesAutosave').textContent = '';
+
+  const body = document.getElementById('notesBody');
+  const isHtml = /<[a-z][\s\S]*>/i.test(note.content || '');
+  body.innerHTML = isHtml ? (note.content || '') : (note.content ? mdToHtml(note.content) : '');
 
   const updated = note.updatedAt ? new Date(note.updatedAt).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : '';
   document.getElementById('notesMeta').textContent = updated ? `Atualizado ${updated}` : '';
 
-  document.querySelectorAll('.notes-tab').forEach(t => t.classList.toggle('active', t.dataset.mode === 'edit'));
   renderNotesTree();
+  setTimeout(() => body.focus(), 60);
 }
 
 function notesSaveContent(showFeedback = false) {
   if (!notesCurrentId) return;
   const note = S.notes.find(n => n.id === notesCurrentId);
   if (!note) return;
-  note.name       = document.getElementById('notesTitleInput').value.trim() || 'Sem título';
-  note.content    = document.getElementById('notesTextarea').value;
-  note.updatedAt  = new Date().toISOString();
+  note.name      = document.getElementById('notesTitleInput').value.trim() || 'Sem título';
+  note.content   = document.getElementById('notesBody').innerHTML;
+  note.updatedAt = new Date().toISOString();
   saveNotes();
   renderNotesTree();
   const updated = new Date(note.updatedAt).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
@@ -2286,6 +2289,54 @@ function notesDeleteItem(id) {
   };
 }
 
+function ntbExec(cmd, value = null) {
+  document.getElementById('notesBody')?.focus();
+  document.execCommand(cmd, false, value);
+  ntbUpdateState();
+}
+
+function ntbUpdateState() {
+  document.querySelectorAll('.ntb-btn[data-cmd]').forEach(btn => {
+    try { btn.classList.toggle('active', document.queryCommandState(btn.dataset.cmd)); } catch(_) {}
+  });
+  try {
+    const block = document.queryCommandValue('formatBlock').toLowerCase().replace(/[<>]/g, '');
+    const sel = document.getElementById('ntbBlock');
+    if (sel) sel.value = ['h1','h2','h3'].includes(block) ? block : 'p';
+  } catch(_) {}
+}
+
+function ntbSaveRange() {
+  const sel = window.getSelection();
+  ntbSavedRange = sel.rangeCount > 0 ? sel.getRangeAt(0).cloneRange() : null;
+}
+
+function ntbRestoreRange() {
+  if (!ntbSavedRange) return;
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(ntbSavedRange);
+  document.getElementById('notesBody')?.focus();
+}
+
+function ntbBuildPalette(paletteEl, colors, applyFn, barId) {
+  paletteEl.innerHTML = '';
+  colors.forEach(color => {
+    const sw = document.createElement('div');
+    sw.className = 'ntb-swatch' + (color === null ? ' none' : '');
+    if (color) sw.style.background = color;
+    sw.addEventListener('mousedown', e => {
+      e.preventDefault();
+      ntbRestoreRange();
+      applyFn(color);
+      const bar = document.getElementById(barId);
+      if (bar) bar.style.background = color || 'transparent';
+      paletteEl.classList.remove('open');
+    });
+    paletteEl.appendChild(sw);
+  });
+}
+
 function initNotes() {
   document.getElementById('notesBtnFolder')?.addEventListener('click', () => notesNewFolder(null));
   document.getElementById('notesBtnNote')?.addEventListener('click', () => notesNewNote(null));
@@ -2299,25 +2350,67 @@ function initNotes() {
     if (action === 'new-note') notesNewNote(id);
   });
 
-  document.querySelectorAll('.notes-tab').forEach(btn => {
-    btn.addEventListener('click', () => {
-      notesMode = btn.dataset.mode;
-      document.querySelectorAll('.notes-tab').forEach(t => t.classList.toggle('active', t === btn));
-      const ta  = document.getElementById('notesTextarea');
-      const pre = document.getElementById('notesPreviewArea');
-      if (notesMode === 'preview') {
-        notesSaveContent();
-        pre.innerHTML = mdToHtml(document.getElementById('notesTextarea').value);
-        ta.style.display  = 'none';
-        pre.style.display = 'block';
-      } else {
-        ta.style.display  = 'block';
-        pre.style.display = 'none';
-      }
-    });
+  // Toolbar command buttons
+  document.getElementById('notesToolbar')?.addEventListener('mousedown', e => {
+    const btn = e.target.closest('.ntb-btn[data-cmd]');
+    if (!btn) return;
+    e.preventDefault();
+    ntbExec(btn.dataset.cmd);
   });
 
-  document.getElementById('notesTextarea')?.addEventListener('input', notesAutoSave);
+  // Block format select
+  document.getElementById('ntbBlock')?.addEventListener('change', function() {
+    document.getElementById('notesBody')?.focus();
+    document.execCommand('formatBlock', false, this.value);
+    ntbUpdateState();
+  });
+
+  // Font select
+  document.getElementById('ntbFont')?.addEventListener('change', function() {
+    document.getElementById('notesBody')?.focus();
+    document.execCommand('fontName', false, this.value);
+  });
+
+  // Size select
+  document.getElementById('ntbSize')?.addEventListener('change', function() {
+    if (!this.value) return;
+    document.getElementById('notesBody')?.focus();
+    document.execCommand('fontSize', false, this.value);
+    this.value = '';
+  });
+
+  // Color palettes
+  const fgPalette = document.getElementById('ntbFgPalette');
+  const bgPalette = document.getElementById('ntbBgPalette');
+  if (fgPalette) ntbBuildPalette(fgPalette, NTB_FG, c => ntbExec('foreColor', c), 'ntbFgBar');
+  if (bgPalette) ntbBuildPalette(bgPalette, NTB_BG, c => { try { ntbExec('hiliteColor', c || 'transparent'); } catch(_) { ntbExec('backColor', c || 'transparent'); } }, 'ntbBgBar');
+
+  document.getElementById('ntbFgBtn')?.addEventListener('mousedown', e => {
+    e.preventDefault(); ntbSaveRange();
+    fgPalette?.classList.toggle('open');
+    bgPalette?.classList.remove('open');
+  });
+  document.getElementById('ntbBgBtn')?.addEventListener('mousedown', e => {
+    e.preventDefault(); ntbSaveRange();
+    bgPalette?.classList.toggle('open');
+    fgPalette?.classList.remove('open');
+  });
+  document.addEventListener('click', e => {
+    if (!e.target.closest('#ntbFgWrap')) fgPalette?.classList.remove('open');
+    if (!e.target.closest('#ntbBgWrap')) bgPalette?.classList.remove('open');
+  });
+
+  // Editor events
+  const body = document.getElementById('notesBody');
+  body?.addEventListener('input', () => { notesAutoSave(); ntbUpdateState(); });
+  body?.addEventListener('keyup', ntbUpdateState);
+  body?.addEventListener('mouseup', ntbUpdateState);
+  body?.addEventListener('keydown', e => {
+    if (e.ctrlKey || e.metaKey) {
+      if (e.key === 's') { e.preventDefault(); notesSaveContent(true); }
+    }
+  });
+
   document.getElementById('notesTitleInput')?.addEventListener('input', notesAutoSave);
 }
 

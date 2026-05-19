@@ -338,13 +338,59 @@
             <div class="notes-editor" id="notesEditor" style="display:none">
               <div class="notes-editor-head">
                 <input class="notes-title-input" id="notesTitleInput" placeholder="Título da nota…">
-                <div class="notes-tabs">
-                  <button class="notes-tab active" data-mode="edit"><i class='bx bx-edit-alt'></i> Editar</button>
-                  <button class="notes-tab" data-mode="preview"><i class='bx bx-show'></i> Preview</button>
-                </div>
               </div>
-              <textarea class="notes-textarea" id="notesTextarea" placeholder="Escreva em markdown…&#10;&#10;# Título&#10;## Subtítulo&#10;- lista&#10;**negrito** *itálico*&#10;`código`"></textarea>
-              <div class="notes-preview-area" id="notesPreviewArea"></div>
+              <div class="notes-toolbar" id="notesToolbar">
+                <select class="ntb-select ntb-block-sel" id="ntbBlock">
+                  <option value="p">Parágrafo</option>
+                  <option value="h1">Título 1</option>
+                  <option value="h2">Título 2</option>
+                  <option value="h3">Título 3</option>
+                </select>
+                <div class="ntb-sep"></div>
+                <button class="ntb-btn" data-cmd="bold"            title="Negrito (Ctrl+B)"><i class='bx bx-bold'></i></button>
+                <button class="ntb-btn" data-cmd="italic"          title="Itálico (Ctrl+I)"><i class='bx bx-italic'></i></button>
+                <button class="ntb-btn" data-cmd="underline"       title="Sublinhado (Ctrl+U)"><i class='bx bx-underline'></i></button>
+                <button class="ntb-btn" data-cmd="strikeThrough"   title="Riscado"><i class='bx bx-strikethrough'></i></button>
+                <div class="ntb-sep"></div>
+                <button class="ntb-btn" data-cmd="insertUnorderedList" title="Lista com marcadores"><i class='bx bx-list-ul'></i></button>
+                <button class="ntb-btn" data-cmd="insertOrderedList"   title="Lista numerada"><i class='bx bx-list-ol'></i></button>
+                <button class="ntb-btn" data-cmd="justifyLeft"    title="Alinhar esquerda"><i class='bx bx-align-left'></i></button>
+                <button class="ntb-btn" data-cmd="justifyCenter"  title="Centralizar"><i class='bx bx-align-middle'></i></button>
+                <button class="ntb-btn" data-cmd="justifyRight"   title="Alinhar direita"><i class='bx bx-align-right'></i></button>
+                <div class="ntb-sep"></div>
+                <div class="ntb-color-wrap" id="ntbFgWrap">
+                  <button class="ntb-btn ntb-color-btn" id="ntbFgBtn" title="Cor do texto">
+                    <i class='bx bx-font-color'></i>
+                    <span class="ntb-color-bar" id="ntbFgBar" style="background:#F0F2F8"></span>
+                  </button>
+                  <div class="ntb-palette" id="ntbFgPalette"></div>
+                </div>
+                <div class="ntb-color-wrap" id="ntbBgWrap">
+                  <button class="ntb-btn ntb-color-btn" id="ntbBgBtn" title="Destaque">
+                    <i class='bx bxs-color-fill'></i>
+                    <span class="ntb-color-bar" id="ntbBgBar" style="background:transparent"></span>
+                  </button>
+                  <div class="ntb-palette" id="ntbBgPalette"></div>
+                </div>
+                <div class="ntb-sep"></div>
+                <select class="ntb-select ntb-font-sel" id="ntbFont">
+                  <option value="inherit">Inter</option>
+                  <option value="Georgia, serif">Georgia</option>
+                  <option value="'Courier New', monospace">Mono</option>
+                  <option value="'Times New Roman', serif">Times</option>
+                </select>
+                <select class="ntb-select ntb-size-sel" id="ntbSize">
+                  <option value="">Tamanho</option>
+                  <option value="1">Tiny</option>
+                  <option value="2">Pequeno</option>
+                  <option value="3">Normal</option>
+                  <option value="4">Médio</option>
+                  <option value="5">Grande</option>
+                  <option value="6">XL</option>
+                  <option value="7">XXL</option>
+                </select>
+              </div>
+              <div class="notes-body" id="notesBody" contenteditable="true" spellcheck="true"></div>
               <div class="notes-editor-foot">
                 <span class="notes-meta" id="notesMeta"></span>
                 <span class="notes-autosave" id="notesAutosave"></span>

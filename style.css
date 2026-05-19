@@ -2428,50 +2428,117 @@ img { max-width: 100%; }
 }
 .notes-tab:hover { color: var(--text); border-color: var(--border2); }
 .notes-tab.active { background: var(--accent-dim); color: var(--accent); border-color: transparent; }
-.notes-textarea {
-  flex: 1;
-  background: transparent;
-  border: none;
-  color: var(--text);
-  font-size: 14px;
-  font-family: 'Inter', monospace;
-  line-height: 1.7;
-  padding: 20px 24px;
-  resize: none;
-  outline: none;
+/* Toolbar */
+.notes-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--card2);
+  flex-shrink: 0;
+  flex-wrap: wrap;
 }
-.notes-textarea::placeholder { color: var(--text3); }
-.notes-preview-area {
+.ntb-btn {
+  width: 28px;
+  height: 28px;
+  border: none;
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  flex-shrink: 0;
+  transition: background var(--transition), color var(--transition);
+  position: relative;
+}
+.ntb-btn:hover { background: var(--border); color: var(--text); }
+.ntb-btn.active { background: var(--accent-dim); color: var(--accent); }
+.ntb-sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; flex-shrink: 0; }
+.ntb-select {
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--text2);
+  font-size: 12px;
+  font-family: inherit;
+  border-radius: var(--radius-sm);
+  padding: 4px 6px;
+  cursor: pointer;
+  outline: none;
+  height: 28px;
+  transition: border-color var(--transition);
+}
+.ntb-select:focus { border-color: var(--accent); color: var(--text); }
+.ntb-block-sel { width: 88px; }
+.ntb-font-sel  { width: 76px; }
+.ntb-size-sel  { width: 72px; }
+
+/* Color picker */
+.ntb-color-btn { flex-direction: column; gap: 1px; padding-top: 2px; width: 30px; }
+.ntb-color-bar { width: 18px; height: 3px; border-radius: 2px; flex-shrink: 0; }
+.ntb-color-wrap { position: relative; }
+.ntb-palette {
+  display: none;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--card);
+  border: 1px solid var(--border2);
+  border-radius: var(--radius);
+  padding: 8px;
+  box-shadow: var(--shadow-lg);
+  z-index: 700;
+  grid-template-columns: repeat(6, 22px);
+  gap: 4px;
+}
+.ntb-palette.open { display: grid; }
+.ntb-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition: border-color var(--transition), transform var(--transition);
+}
+.ntb-swatch:hover { transform: scale(1.15); border-color: var(--border2); }
+.ntb-swatch.none {
+  background: transparent !important;
+  border: 2px solid var(--border2);
+  position: relative;
+}
+.ntb-swatch.none::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  background: linear-gradient(to bottom right, transparent calc(50% - 1px), var(--red) calc(50% - 1px), var(--red) calc(50% + 1px), transparent calc(50% + 1px));
+}
+
+/* Editor body (contenteditable) */
+.notes-body {
   flex: 1;
   overflow-y: auto;
-  padding: 20px 24px;
-  display: none;
-  color: var(--text);
+  padding: 20px 26px;
+  outline: none;
   font-size: 14px;
-  line-height: 1.75;
+  line-height: 1.8;
+  color: var(--text);
+  caret-color: var(--accent);
+  word-break: break-word;
 }
-.notes-preview-area::-webkit-scrollbar { width: 4px; }
-.notes-preview-area::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
-
-/* Markdown preview styles */
-.notes-preview-area h1 { font-size: 22px; font-weight: 700; margin: 0 0 14px; color: var(--text); border-bottom: 1px solid var(--border); padding-bottom: 8px; }
-.notes-preview-area h2 { font-size: 18px; font-weight: 600; margin: 20px 0 10px; color: var(--text); }
-.notes-preview-area h3 { font-size: 15px; font-weight: 600; margin: 16px 0 8px; color: var(--text2); }
-.notes-preview-area p  { margin: 0 0 12px; color: var(--text2); }
-.notes-preview-area ul, .notes-preview-area ol { margin: 0 0 12px; padding-left: 20px; color: var(--text2); }
-.notes-preview-area li { margin-bottom: 4px; }
-.notes-preview-area code { background: rgba(37,99,235,0.1); color: var(--blue); padding: 2px 6px; border-radius: 4px; font-family: monospace; font-size: 13px; }
-.notes-preview-area pre { background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px 16px; overflow-x: auto; margin: 0 0 14px; }
-.notes-preview-area pre code { background: none; padding: 0; color: var(--text); font-size: 13px; }
-.notes-preview-area blockquote { border-left: 3px solid var(--accent); margin: 0 0 12px; padding: 4px 14px; color: var(--text3); font-style: italic; }
-.notes-preview-area hr { border: none; border-top: 1px solid var(--border); margin: 18px 0; }
-.notes-preview-area strong { color: var(--text); font-weight: 600; }
-.notes-preview-area em { font-style: italic; }
-.notes-preview-area del { text-decoration: line-through; color: var(--text3); }
-.notes-preview-area a { color: var(--accent); text-decoration: none; }
-.notes-preview-area a:hover { text-decoration: underline; }
-.notes-preview-area input[type="checkbox"] { margin-right: 6px; accent-color: var(--accent); }
-.notes-preview-area .task-done { color: var(--text3); text-decoration: line-through; }
+.notes-body::-webkit-scrollbar { width: 4px; }
+.notes-body::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+.notes-body:empty::before { content: 'Comece a escrever…'; color: var(--text3); pointer-events: none; }
+.notes-body p   { margin: 0 0 8px; }
+.notes-body h1  { font-size: 22px; font-weight: 700; margin: 4px 0 12px; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+.notes-body h2  { font-size: 18px; font-weight: 600; margin: 18px 0 8px; }
+.notes-body h3  { font-size: 15px; font-weight: 600; margin: 14px 0 6px; color: var(--text2); }
+.notes-body ul, .notes-body ol { padding-left: 22px; margin: 0 0 8px; }
+.notes-body li  { margin-bottom: 3px; }
+.notes-body a   { color: var(--accent); }
 
 .notes-editor-foot {
   display: flex;
