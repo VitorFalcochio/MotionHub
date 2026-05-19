@@ -99,6 +99,9 @@
       <a class="nav-item" data-section="prompts">
         <i class='bx bx-file-blank'></i><span>Prompts & Docs</span>
       </a>
+      <a class="nav-item" data-section="notes">
+        <i class='bx bx-notepad'></i><span>Notas</span>
+      </a>
     </nav>
 
     <div class="sidebar-footer">
@@ -311,6 +314,43 @@
       <!-- ==================== REVIEW ==================== -->
       <section class="page" id="section-review">
         <div class="review-grid" id="reviewList"></div>
+      </section>
+
+      <!-- ==================== NOTES ==================== -->
+      <section class="page" id="section-notes">
+        <div class="notes-layout">
+          <div class="notes-sidebar">
+            <div class="notes-sb-head">
+              <span class="notes-sb-title">Notas</span>
+              <div class="notes-sb-actions">
+                <button class="btn-icon" id="notesBtnFolder" title="Nova pasta"><i class='bx bx-folder-plus'></i></button>
+                <button class="btn-icon" id="notesBtnNote" title="Nova nota"><i class='bx bx-plus'></i></button>
+              </div>
+            </div>
+            <div class="notes-tree" id="notesTree"></div>
+          </div>
+          <div class="notes-main">
+            <div class="notes-empty" id="notesEmpty">
+              <i class='bx bx-notepad'></i>
+              <p>Selecione uma nota ou crie uma nova</p>
+            </div>
+            <div class="notes-editor" id="notesEditor" style="display:none">
+              <div class="notes-editor-head">
+                <input class="notes-title-input" id="notesTitleInput" placeholder="Título da nota…">
+                <div class="notes-tabs">
+                  <button class="notes-tab active" data-mode="edit"><i class='bx bx-edit-alt'></i> Editar</button>
+                  <button class="notes-tab" data-mode="preview"><i class='bx bx-show'></i> Preview</button>
+                </div>
+              </div>
+              <textarea class="notes-textarea" id="notesTextarea" placeholder="Escreva em markdown…&#10;&#10;# Título&#10;## Subtítulo&#10;- lista&#10;**negrito** *itálico*&#10;`código`"></textarea>
+              <div class="notes-preview-area" id="notesPreviewArea"></div>
+              <div class="notes-editor-foot">
+                <span class="notes-meta" id="notesMeta"></span>
+                <span class="notes-autosave" id="notesAutosave"></span>
+              </div>
+            </div>
+          </div>
+        </div>
       </section>
 
     </main>

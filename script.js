@@ -14,6 +14,7 @@ const S = {
   habits: [],
   goals: [],
   reviews: [],
+  notes: [],
   modalSave: null,
   confirmOk: null,
   projectFilter: 'all',
@@ -51,6 +52,7 @@ async function loadAll() {
     S.habits       = data.habits       || [];
     S.goals        = data.goals        || [];
     S.reviews      = data.reviews      || [];
+    S.notes        = data.notes        || [];
   }
   return data;
 }
@@ -63,6 +65,7 @@ function saveDocs()         { syncData({ docs:         S.docs }); }
 function saveHabits()       { syncData({ habits:       S.habits }); }
 function saveGoals()        { syncData({ goals:        S.goals }); }
 function saveReviews()      { syncData({ reviews:      S.reviews }); }
+function saveNotes()        { syncData({ notes:        S.notes }); }
 
 /* ===== IDs ===== */
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
@@ -185,6 +188,21 @@ function seedV2(existingData) {
   syncData({ seeded_v2: true });
 }
 
+/* ===== SEED NOTES ===== */
+function seedNotes(existingData) {
+  if (existingData && existingData.seeded_notes) return;
+  const f1 = uid(), f2 = uid();
+  S.notes = [
+    { id: f1,    type: 'folder', name: 'Projetos',   parentId: null,  createdAt: new Date().toISOString() },
+    { id: f2,    type: 'folder', name: 'Pessoal',    parentId: null,  createdAt: new Date().toISOString() },
+    { id: uid(), type: 'note',   name: 'Cotai — Roadmap', parentId: f1, content: '# Cotai — Roadmap\n\n## Próximas features\n\n- [ ] Dashboard de analytics\n- [ ] Integração com fornecedores\n- [x] MVP de cotação\n\n## Notas de produto\n\n> Foco em reduzir o tempo de cotação de materiais para construtoras.\n\n**Prioridade:** validar com 5 clientes beta até fim do mês.', updatedAt: new Date().toISOString(), createdAt: new Date().toISOString() },
+    { id: uid(), type: 'note',   name: 'Simplifique — Ideias', parentId: f1, content: '# Simplifique\n\n## Diferenciais vs concorrentes\n\n- Onboarding em menos de 10 minutos\n- Suporte humanizado incluso\n- Integração com contadores\n\n## Público-alvo\n\nPequenas empresas com faturamento entre R$ 50k e R$ 500k/mês.', updatedAt: new Date().toISOString(), createdAt: new Date().toISOString() },
+    { id: uid(), type: 'note',   name: 'Leituras recomendadas', parentId: f2, content: '# Leituras\n\n## Negócio\n\n- **Zero to One** — Peter Thiel\n- **The Mom Test** — Rob Fitzpatrick\n- **Obviously Awesome** — April Dunford\n\n## Tecnologia\n\n- **Clean Code** — Robert Martin\n- **The Pragmatic Programmer**\n\n---\n\n*Atualizar conforme for lendo.*', updatedAt: new Date().toISOString(), createdAt: new Date().toISOString() }
+  ];
+  saveNotes();
+  syncData({ seeded_notes: true });
+}
+
 /* ===== NAVIGATION ===== */
 const sectionMeta = {
   dashboard:  { label: 'Dashboard',        btnLabel: null },
@@ -197,7 +215,8 @@ const sectionMeta = {
   crm:        { label: 'CRM',               btnLabel: 'Novo Contato' },
   financial:  { label: 'Financeiro',        btnLabel: 'Novo Lançamento' },
   review:     { label: 'Revisão Semanal',   btnLabel: 'Nova Revisão' },
-  prompts:    { label: 'Prompts & Docs',    btnLabel: 'Novo Documento' }
+  prompts:    { label: 'Prompts & Docs',    btnLabel: 'Novo Documento' },
+  notes:      { label: 'Notas',             btnLabel: null }
 };
 
 function navigateTo(section) {
@@ -234,6 +253,7 @@ function renderSection(section) {
   else if (section === 'financial') renderFinancial();
   else if (section === 'review') renderReview();
   else if (section === 'prompts') renderPrompts();
+  else if (section === 'notes') renderNotesTree();
 }
 
 /* ===== TOAST ===== */
@@ -1909,13 +1929,310 @@ async function startApp() {
   const existingData = await loadAll();
   seedIfEmpty(existingData);
   seedV2(existingData);
+  seedNotes(existingData);
   bindEvents();
   initJarvis();
+  initNotes();
   navigateTo('dashboard');
   setTimeout(() => {
     const loader = document.getElementById('loaderScreen');
     if (loader) { loader.classList.add('out'); setTimeout(() => loader.remove(), 580); }
   }, 3000);
+}
+
+/* ====================================================
+   NOTAS
+   ==================================================== */
+
+let notesCurrentId      = null;
+let notesMode           = 'edit';
+let notesSaveTimer      = null;
+let notesExpandedFolders = new Set();
+
+function mdToHtml(md) {
+  if (!md) return '';
+  let h = md.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+  // Fenced code blocks
+  h = h.replace(/```[\w]*\n?([\s\S]*?)```/g, (_, code) =>
+    `<pre><code>${code.trim()}</code></pre>`);
+  // Inline code
+  h = h.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  // Headers
+  h = h.replace(/^###\s(.+)$/gm, '<h3>$1</h3>');
+  h = h.replace(/^##\s(.+)$/gm,  '<h2>$1</h2>');
+  h = h.replace(/^#\s(.+)$/gm,   '<h1>$1</h1>');
+  // HR
+  h = h.replace(/^[-*_]{3,}$/gm, '<hr>');
+  // Blockquote
+  h = h.replace(/^>\s(.+)$/gm, '<blockquote>$1</blockquote>');
+  // Bold + italic
+  h = h.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+  h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  h = h.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  h = h.replace(/~~(.+?)~~/g, '<del>$1</del>');
+  // Links
+  h = h.replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  // Lists
+  h = h.replace(/((?:^[-*]\s.+(?:\n|$))+)/gm, match => {
+    const items = match.trim().split('\n')
+      .map(l => {
+        const text = l.replace(/^[-*]\s/, '');
+        if (/^\[x\]/i.test(text)) return `<li class="task-done"><input type="checkbox" checked disabled> ${text.slice(3)}</li>`;
+        if (/^\[ \]/.test(text))  return `<li class="task-todo"><input type="checkbox" disabled> ${text.slice(3)}</li>`;
+        return `<li>${text}</li>`;
+      }).join('');
+    return `<ul>${items}</ul>`;
+  });
+  h = h.replace(/((?:^\d+\.\s.+(?:\n|$))+)/gm, match => {
+    const items = match.trim().split('\n').map(l => `<li>${l.replace(/^\d+\.\s/, '')}</li>`).join('');
+    return `<ol>${items}</ol>`;
+  });
+  // Paragraphs
+  const blocks = h.split(/\n{2,}/);
+  h = blocks.map(b => {
+    b = b.trim();
+    if (!b) return '';
+    if (/^<(h[1-6]|ul|ol|pre|blockquote|hr)/.test(b)) return b;
+    return `<p>${b.replace(/\n/g, '<br>')}</p>`;
+  }).join('\n');
+  return h;
+}
+
+function renderNotesTree() {
+  const tree = document.getElementById('notesTree');
+  if (!tree) return;
+  tree.innerHTML = '';
+  const roots = S.notes.filter(n => n.parentId === null);
+  notesRenderItems(tree, roots, 0);
+}
+
+function notesRenderItems(container, items, depth) {
+  const folders = items.filter(n => n.type === 'folder').sort((a,b) => a.name.localeCompare(b.name));
+  const notes   = items.filter(n => n.type === 'note').sort((a,b) => a.name.localeCompare(b.name));
+
+  for (const folder of folders) {
+    const isOpen = notesExpandedFolders.has(folder.id);
+    const wrap   = document.createElement('div');
+    wrap.className = 'notes-tree-folder';
+
+    const head = document.createElement('div');
+    head.className = `notes-tree-item notes-tree-folder-head${isOpen ? ' open' : ''}`;
+    head.style.paddingLeft = `${12 + depth * 12}px`;
+    head.dataset.id = folder.id;
+    head.innerHTML = `
+      <i class='bx bx-chevron-right notes-chevron'></i>
+      <i class='bx bxs-folder notes-icon'></i>
+      <span class="notes-item-name">${folder.name}</span>
+      <div class="notes-item-actions">
+        <button class="notes-action-btn" data-action="new-note" data-id="${folder.id}" title="Nova nota aqui"><i class='bx bx-plus'></i></button>
+        <button class="notes-action-btn" data-action="rename" data-id="${folder.id}" title="Renomear"><i class='bx bx-pencil'></i></button>
+        <button class="notes-action-btn" data-action="delete" data-id="${folder.id}" title="Excluir"><i class='bx bx-trash'></i></button>
+      </div>`;
+
+    const children = document.createElement('div');
+    children.className = 'notes-tree-children';
+    children.style.display = isOpen ? 'block' : 'none';
+
+    head.addEventListener('click', e => {
+      if (e.target.closest('.notes-action-btn')) return;
+      if (notesExpandedFolders.has(folder.id)) notesExpandedFolders.delete(folder.id);
+      else notesExpandedFolders.add(folder.id);
+      renderNotesTree();
+    });
+
+    wrap.appendChild(head);
+    wrap.appendChild(children);
+    container.appendChild(wrap);
+
+    const childItems = S.notes.filter(n => n.parentId === folder.id);
+    notesRenderItems(children, childItems, depth + 1);
+  }
+
+  for (const note of notes) {
+    const el = document.createElement('div');
+    el.className = `notes-tree-item notes-tree-note${note.id === notesCurrentId ? ' active' : ''}`;
+    el.style.paddingLeft = `${28 + depth * 12}px`;
+    el.dataset.id = note.id;
+    el.innerHTML = `
+      <i class='bx bx-file notes-icon'></i>
+      <span class="notes-item-name">${note.name}</span>
+      <div class="notes-item-actions">
+        <button class="notes-action-btn" data-action="rename" data-id="${note.id}" title="Renomear"><i class='bx bx-pencil'></i></button>
+        <button class="notes-action-btn" data-action="delete" data-id="${note.id}" title="Excluir"><i class='bx bx-trash'></i></button>
+      </div>`;
+    el.addEventListener('click', e => {
+      if (e.target.closest('.notes-action-btn')) return;
+      notesOpenNote(note.id);
+    });
+    container.appendChild(el);
+  }
+}
+
+function notesOpenNote(id) {
+  const note = S.notes.find(n => n.id === id);
+  if (!note || note.type !== 'note') return;
+  notesCurrentId = id;
+  notesMode = 'edit';
+
+  document.getElementById('notesEmpty').style.display    = 'none';
+  document.getElementById('notesEditor').style.display   = 'flex';
+  document.getElementById('notesTitleInput').value        = note.name;
+  document.getElementById('notesTextarea').value          = note.content || '';
+  document.getElementById('notesPreviewArea').style.display = 'none';
+  document.getElementById('notesTextarea').style.display    = 'block';
+  document.getElementById('notesAutosave').textContent      = '';
+
+  const updated = note.updatedAt ? new Date(note.updatedAt).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' }) : '';
+  document.getElementById('notesMeta').textContent = updated ? `Atualizado ${updated}` : '';
+
+  document.querySelectorAll('.notes-tab').forEach(t => t.classList.toggle('active', t.dataset.mode === 'edit'));
+  renderNotesTree();
+}
+
+function notesSaveContent(showFeedback = false) {
+  if (!notesCurrentId) return;
+  const note = S.notes.find(n => n.id === notesCurrentId);
+  if (!note) return;
+  note.name       = document.getElementById('notesTitleInput').value.trim() || 'Sem título';
+  note.content    = document.getElementById('notesTextarea').value;
+  note.updatedAt  = new Date().toISOString();
+  saveNotes();
+  renderNotesTree();
+  const updated = new Date(note.updatedAt).toLocaleString('pt-BR', { day:'2-digit', month:'2-digit', hour:'2-digit', minute:'2-digit' });
+  document.getElementById('notesMeta').textContent = `Atualizado ${updated}`;
+  if (showFeedback) {
+    const el = document.getElementById('notesAutosave');
+    el.textContent = 'Salvo';
+    setTimeout(() => { el.textContent = ''; }, 1800);
+  }
+}
+
+function notesAutoSave() {
+  clearTimeout(notesSaveTimer);
+  notesSaveTimer = setTimeout(() => notesSaveContent(true), 1200);
+}
+
+function notesNewFolder(parentId = null) {
+  openModal('Nova Pasta', `
+    <div class="form-group">
+      <label class="form-label">Nome da pasta</label>
+      <input class="form-input" id="mFolderName" placeholder="Ex: Projetos" autofocus>
+    </div>`, () => {
+    const name = document.getElementById('mFolderName').value.trim();
+    if (!name) return false;
+    S.notes.push({ id: uid(), type: 'folder', name, parentId, createdAt: new Date().toISOString() });
+    saveNotes();
+    renderNotesTree();
+    toast('Pasta criada!', 'success');
+  });
+  setTimeout(() => document.getElementById('mFolderName')?.focus(), 50);
+}
+
+function notesNewNote(parentId = null) {
+  openModal('Nova Nota', `
+    <div class="form-group">
+      <label class="form-label">Nome da nota</label>
+      <input class="form-input" id="mNoteName" placeholder="Ex: Ideias de produto" autofocus>
+    </div>`, () => {
+    const name = document.getElementById('mNoteName').value.trim();
+    if (!name) return false;
+    const note = { id: uid(), type: 'note', name, parentId, content: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    S.notes.push(note);
+    saveNotes();
+    if (parentId) notesExpandedFolders.add(parentId);
+    notesOpenNote(note.id);
+    toast('Nota criada!', 'success');
+  });
+  setTimeout(() => document.getElementById('mNoteName')?.focus(), 50);
+}
+
+function notesRenameItem(id) {
+  const item = S.notes.find(n => n.id === id);
+  if (!item) return;
+  openModal(`Renomear ${item.type === 'folder' ? 'Pasta' : 'Nota'}`, `
+    <div class="form-group">
+      <label class="form-label">Novo nome</label>
+      <input class="form-input" id="mRenameVal" value="${item.name}" autofocus>
+    </div>`, () => {
+    const name = document.getElementById('mRenameVal').value.trim();
+    if (!name) return false;
+    item.name = name;
+    saveNotes();
+    if (notesCurrentId === id) document.getElementById('notesTitleInput').value = name;
+    renderNotesTree();
+    toast('Renomeado!', 'success');
+  });
+  setTimeout(() => { const el = document.getElementById('mRenameVal'); el?.focus(); el?.select(); }, 50);
+}
+
+function notesDeleteItem(id) {
+  const item = S.notes.find(n => n.id === id);
+  if (!item) return;
+  const isFolder = item.type === 'folder';
+  const label = isFolder ? `a pasta "${item.name}" e todo seu conteúdo` : `a nota "${item.name}"`;
+  document.getElementById('confirmOverlay').classList.add('open');
+  document.querySelector('.confirm-heading').textContent = `Excluir ${label}?`;
+  S.confirmOk = () => {
+    if (isFolder) {
+      const idsToRemove = new Set([id]);
+      const collectChildren = pid => {
+        S.notes.filter(n => n.parentId === pid).forEach(n => { idsToRemove.add(n.id); if (n.type === 'folder') collectChildren(n.id); });
+      };
+      collectChildren(id);
+      if (idsToRemove.has(notesCurrentId)) {
+        notesCurrentId = null;
+        document.getElementById('notesEmpty').style.display  = 'flex';
+        document.getElementById('notesEditor').style.display = 'none';
+      }
+      S.notes = S.notes.filter(n => !idsToRemove.has(n.id));
+    } else {
+      S.notes = S.notes.filter(n => n.id !== id);
+      if (notesCurrentId === id) {
+        notesCurrentId = null;
+        document.getElementById('notesEmpty').style.display  = 'flex';
+        document.getElementById('notesEditor').style.display = 'none';
+      }
+    }
+    saveNotes();
+    renderNotesTree();
+    toast('Excluído!', 'success');
+  };
+}
+
+function initNotes() {
+  document.getElementById('notesBtnFolder')?.addEventListener('click', () => notesNewFolder(null));
+  document.getElementById('notesBtnNote')?.addEventListener('click', () => notesNewNote(null));
+
+  document.getElementById('notesTree')?.addEventListener('click', e => {
+    const btn = e.target.closest('.notes-action-btn');
+    if (!btn) return;
+    const { action, id } = btn.dataset;
+    if (action === 'rename')   notesRenameItem(id);
+    if (action === 'delete')   notesDeleteItem(id);
+    if (action === 'new-note') notesNewNote(id);
+  });
+
+  document.querySelectorAll('.notes-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      notesMode = btn.dataset.mode;
+      document.querySelectorAll('.notes-tab').forEach(t => t.classList.toggle('active', t === btn));
+      const ta  = document.getElementById('notesTextarea');
+      const pre = document.getElementById('notesPreviewArea');
+      if (notesMode === 'preview') {
+        notesSaveContent();
+        pre.innerHTML = mdToHtml(document.getElementById('notesTextarea').value);
+        ta.style.display  = 'none';
+        pre.style.display = 'block';
+      } else {
+        ta.style.display  = 'block';
+        pre.style.display = 'none';
+      }
+    });
+  });
+
+  document.getElementById('notesTextarea')?.addEventListener('input', notesAutoSave);
+  document.getElementById('notesTitleInput')?.addEventListener('input', notesAutoSave);
 }
 
 /* ====================================================
