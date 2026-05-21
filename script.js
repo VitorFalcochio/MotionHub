@@ -15,6 +15,7 @@ const S = {
   goals: [],
   reviews: [],
   notes: [],
+  profiles: {},
   modalSave: null,
   confirmOk: null,
   projectFilter: 'all',
@@ -27,21 +28,23 @@ let _selectedMood = 3;
 /* ===== SUPABASE ===== */
 const SUPABASE_URL = 'https://zwqcbwiegcndwvqprcdt.supabase.co';
 const SUPABASE_KEY = 'sb_publishable_DQg6Q79FXornM4XKlKGkJw_OQjUGEvz';
+const WORKSPACE_ID = 'main';
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-let currentUserId = null;
+let currentUserId   = null;
+let currentUserName = null;
+let currentUserColor = '#6366f1';
 
 async function syncData(updates) {
-  if (!currentUserId) return;
   try {
     await sb.from('app_data').upsert(
-      { user_id: currentUserId, ...updates },
-      { onConflict: 'user_id' }
+      { workspace_id: WORKSPACE_ID, ...updates },
+      { onConflict: 'workspace_id' }
     );
   } catch (e) { console.error('Sync error:', e); }
 }
 
 async function loadAll() {
-  const { data } = await sb.from('app_data').select('*').eq('user_id', currentUserId).maybeSingle();
+  const { data } = await sb.from('app_data').select('*').eq('workspace_id', WORKSPACE_ID).maybeSingle();
   if (data) {
     S.projects     = data.projects     || [];
     S.tasks        = data.tasks        || [];
@@ -55,6 +58,19 @@ async function loadAll() {
     S.notes        = data.notes        || [];
   }
   return data;
+}
+
+async function loadProfiles() {
+  const { data } = await sb.from('profiles').select('*');
+  S.profiles = {};
+  (data || []).forEach(p => { S.profiles[p.id] = p; });
+}
+
+function ownerBadge(item) {
+  if (!item.owner_name) return '';
+  const profile = item.owner_id ? S.profiles[item.owner_id] : null;
+  const color = profile?.avatar_color || currentUserColor;
+  return `<span class="owner-badge" style="background:${color}22;color:${color};border:1px solid ${color}44"><i class='bx bx-user'></i>${escHtml(item.owner_name)}</span>`;
 }
 function saveProjects()     { syncData({ projects:     S.projects }); }
 function saveTasks()        { syncData({ tasks:        S.tasks }); }
@@ -460,6 +476,7 @@ function renderProjects(filter) {
         <div class="proj-card-meta">
           <span class="status-badge ${statusClass(p.status)}">${escHtml(p.status)}</span>
           <span class="prio ${prioClass(p.priority)}">${escHtml(p.priority)}</span>
+          ${ownerBadge(p)}
         </div>
       </div>
       <div class="proj-card-bottom">
@@ -512,7 +529,7 @@ function newProject(defaultCol) {
   openModal('Novo Projeto', projectForm(), () => {
     const name = document.getElementById('f-name').value.trim();
     if (!name) { toast('Nome do projeto é obrigatório.', 'error'); return false; }
-    S.projects.unshift({ id: uid(), name, desc: document.getElementById('f-desc').value.trim(), status: document.getElementById('f-status').value, priority: document.getElementById('f-priority').value, progress: +document.getElementById('f-progress').value, createdAt: new Date().toISOString().slice(0,10) });
+    S.projects.unshift({ id: uid(), name, desc: document.getElementById('f-desc').value.trim(), status: document.getElementById('f-status').value, priority: document.getElementById('f-priority').value, progress: +document.getElementById('f-progress').value, createdAt: new Date().toISOString().slice(0,10), owner_id: currentUserId, owner_name: currentUserName });
     saveProjects(); renderProjects(); renderDashboard(); toast('Projeto criado com sucesso!');
   });
 }
@@ -559,6 +576,7 @@ function taskCard(t) {
         <div class="task-card-tags">
           <span class="prio ${prioClass(t.priority)}">${escHtml(t.priority)}</span>
           ${t.project ? `<span class="task-proj-tag">${escHtml(t.project)}</span>` : ''}
+          ${ownerBadge(t)}
         </div>
         <div class="task-card-actions">
           <button class="btn-icon green" onclick="editTask('${t.id}')"><i class='bx bx-edit-alt'></i></button>
@@ -616,7 +634,7 @@ function newTask(col) {
   openModal('Nova Tarefa', taskForm(def), () => {
     const title = document.getElementById('f-title').value.trim();
     if (!title) { toast('Título obrigatório.', 'error'); return false; }
-    S.tasks.unshift({ id: uid(), title, project: document.getElementById('f-project').value, priority: document.getElementById('f-priority').value, col: document.getElementById('f-col').value, due: document.getElementById('f-due').value });
+    S.tasks.unshift({ id: uid(), title, project: document.getElementById('f-project').value, priority: document.getElementById('f-priority').value, col: document.getElementById('f-col').value, due: document.getElementById('f-due').value, owner_id: currentUserId, owner_name: currentUserName });
     saveTasks(); renderKanban(); renderDashboard(); toast('Tarefa criada!');
   });
 }
@@ -679,9 +697,10 @@ function renderIdeas() {
         ${i.notes ? `<div class="idea-field"><div class="idea-field-label">Observações</div><div class="idea-field-value">${escHtml(i.notes)}</div></div>` : ''}
       </div>
       <div class="idea-card-foot">
-        <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
           <span class="status-badge ${statusClass(i.status)}">${escHtml(i.status)}</span>
           <span class="badge ${potentialClass(i.potential)}">${escHtml(i.potential)} potencial</span>
+          ${ownerBadge(i)}
         </div>
       </div>
     </div>`).join('');
@@ -732,7 +751,7 @@ function newIdea() {
   openModal('Nova Ideia', ideaForm(), () => {
     const name = document.getElementById('f-name').value.trim();
     if (!name) { toast('Nome obrigatório.', 'error'); return false; }
-    S.ideas.unshift({ id: uid(), name, problem: document.getElementById('f-problem').value.trim(), audience: document.getElementById('f-audience').value.trim(), monetization: document.getElementById('f-monetization').value.trim(), potential: document.getElementById('f-potential').value, status: document.getElementById('f-status').value, notes: document.getElementById('f-notes').value.trim() });
+    S.ideas.unshift({ id: uid(), name, problem: document.getElementById('f-problem').value.trim(), audience: document.getElementById('f-audience').value.trim(), monetization: document.getElementById('f-monetization').value.trim(), potential: document.getElementById('f-potential').value, status: document.getElementById('f-status').value, notes: document.getElementById('f-notes').value.trim(), owner_id: currentUserId, owner_name: currentUserName });
     saveIdeas(); renderIdeas(); renderDashboard(); toast('Ideia registrada!');
   });
 }
@@ -796,6 +815,7 @@ function renderCRM() {
         <div class="crm-card-foot">
           <span class="badge badge-gray">${escHtml(c.type)}</span>
           <span class="status-badge ${statusClass(c.status)}">${escHtml(c.status)}</span>
+          ${ownerBadge(c)}
         </div>
       </div>`;
   }).join('');
@@ -848,7 +868,7 @@ function newContact() {
   openModal('Novo Contato', contactForm(), () => {
     const name = document.getElementById('f-name').value.trim();
     if (!name) { toast('Nome obrigatório.', 'error'); return false; }
-    S.contacts.unshift({ id: uid(), name, company: document.getElementById('f-company').value.trim(), type: document.getElementById('f-type').value, contact: document.getElementById('f-contact').value.trim(), status: document.getElementById('f-status').value, nextStep: document.getElementById('f-nextstep').value.trim(), notes: document.getElementById('f-notes').value.trim() });
+    S.contacts.unshift({ id: uid(), name, company: document.getElementById('f-company').value.trim(), type: document.getElementById('f-type').value, contact: document.getElementById('f-contact').value.trim(), status: document.getElementById('f-status').value, nextStep: document.getElementById('f-nextstep').value.trim(), notes: document.getElementById('f-notes').value.trim(), owner_id: currentUserId, owner_name: currentUserName });
     saveContacts(); renderCRM(); renderDashboard(); toast('Contato criado!');
   });
 }
@@ -927,7 +947,7 @@ function renderFinancial() {
       </div>
       <div class="tx-info">
         <div class="tx-desc">${escHtml(t.desc)}</div>
-        <div class="tx-meta">${escHtml(t.project||'Geral')} · ${fmtDate(t.date)}</div>
+        <div class="tx-meta" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">${escHtml(t.project||'Geral')} · ${fmtDate(t.date)} ${ownerBadge(t)}</div>
       </div>
       <div class="tx-amount ${t.type==='Receita'?'income':'expense'}">${t.type==='Receita'?'+':'-'}${fmtCurrency(t.value)}</div>
       <div class="tx-actions">
@@ -979,7 +999,7 @@ function newTransaction() {
     const value = parseFloat(document.getElementById('f-value').value);
     if (!desc) { toast('Descrição obrigatória.', 'error'); return false; }
     if (!value || value <= 0) { toast('Valor inválido.', 'error'); return false; }
-    S.transactions.unshift({ id: uid(), type: document.getElementById('f-type').value, desc, value, project: document.getElementById('f-project').value, date: document.getElementById('f-date').value });
+    S.transactions.unshift({ id: uid(), type: document.getElementById('f-type').value, desc, value, project: document.getElementById('f-project').value, date: document.getElementById('f-date').value, owner_id: currentUserId, owner_name: currentUserName });
     saveTransactions(); renderFinancial(); toast('Lançamento criado!');
   });
 }
@@ -1038,6 +1058,7 @@ function renderPrompts(filter) {
       <div class="prompt-card-foot">
         <span class="badge ${catColors[d.category] || 'badge-gray'}">${escHtml(d.category)}</span>
         <span class="prompt-meta">${escHtml(d.project || 'Geral')} · ${fmtDate(d.date)}</span>
+        ${ownerBadge(d)}
       </div>
     </div>`).join('');
 }
@@ -1084,7 +1105,7 @@ function newDoc() {
     const content = document.getElementById('f-content').value.trim();
     if (!title) { toast('Título obrigatório.', 'error'); return false; }
     if (!content) { toast('Conteúdo obrigatório.', 'error'); return false; }
-    S.docs.unshift({ id: uid(), title, category: document.getElementById('f-category').value, content, project: document.getElementById('f-project').value, date: document.getElementById('f-date').value });
+    S.docs.unshift({ id: uid(), title, category: document.getElementById('f-category').value, content, project: document.getElementById('f-project').value, date: document.getElementById('f-date').value, owner_id: currentUserId, owner_name: currentUserName });
     saveDocs(); renderPrompts(); toast('Documento criado!');
   });
 }
@@ -1221,6 +1242,7 @@ function renderHabits() {
             <div class="habit-streak-row">
               <span class="habit-streak-txt"><i class='bx bx-flame'></i>${streak} dia${streak !== 1 ? 's' : ''} seguido${streak !== 1 ? 's' : ''}</span>
               <span class="badge badge-gray">${escHtml(h.category)}</span>
+              ${ownerBadge(h)}
             </div>
           </div>
           <button class="habit-check-btn" onclick="toggleHabitToday('${h.id}')">
@@ -1279,7 +1301,7 @@ function newHabit() {
   openModal('Novo Hábito', habitForm(), () => {
     const name = document.getElementById('f-name').value.trim();
     if (!name) { toast('Nome obrigatório.', 'error'); return false; }
-    S.habits.push({ id: uid(), name, category: document.getElementById('f-category').value, icon: document.getElementById('f-icon').value, completions: [] });
+    S.habits.push({ id: uid(), name, category: document.getElementById('f-category').value, icon: document.getElementById('f-icon').value, completions: [], owner_id: currentUserId, owner_name: currentUserName });
     saveHabits(); renderHabits(); toast('Hábito criado!');
   });
 }
@@ -1353,6 +1375,7 @@ function renderGoals() {
             <div class="goal-meta">
               <span class="badge badge-blue">${escHtml(g.quarter)}</span>
               <span class="status-badge ${goalStatusClass(g.status)}">${escHtml(g.status)}</span>
+              ${ownerBadge(g)}
             </div>
           </div>
           <div class="goal-actions">
@@ -1440,7 +1463,7 @@ function newGoal() {
   openModal('Nova Meta / OKR', goalForm(), () => {
     const objective = document.getElementById('f-objective').value.trim();
     if (!objective) { toast('Objetivo obrigatório.', 'error'); return false; }
-    S.goals.unshift({ id: uid(), objective, quarter: document.getElementById('f-quarter').value, status: document.getElementById('f-gstatus').value, keyResults: collectKRs() });
+    S.goals.unshift({ id: uid(), objective, quarter: document.getElementById('f-quarter').value, status: document.getElementById('f-gstatus').value, keyResults: collectKRs(), owner_id: currentUserId, owner_name: currentUserName });
     saveGoals(); renderGoals(); toast('Meta criada!');
   });
 }
@@ -1513,7 +1536,7 @@ function renderReview() {
             <div class="review-mood-icon" style="background:${mood.bg}">${mood.e}</div>
             <div>
               <div class="review-week-label">Semana de ${weekLabel(r.weekOf)}</div>
-              <div class="review-week-date">Registrado em ${fmtDate(r.createdAt)} · Humor: ${mood.l}</div>
+              <div class="review-week-date" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">Registrado em ${fmtDate(r.createdAt)} · Humor: ${mood.l} ${ownerBadge(r)}</div>
             </div>
           </div>
           <div class="review-head-right">
@@ -1598,7 +1621,9 @@ function newReview() {
       blockers: document.getElementById('f-blockers').value.trim(),
       learnings: document.getElementById('f-learnings').value.trim(),
       nextFocus: document.getElementById('f-nextfocus').value.trim(),
-      createdAt: new Date().toISOString().slice(0, 10)
+      createdAt: new Date().toISOString().slice(0, 10),
+      owner_id: currentUserId,
+      owner_name: currentUserName
     });
     saveReviews(); renderReview(); toast('Revisão registrada!');
   });
@@ -1887,7 +1912,51 @@ function bindEvents() {
   });
 }
 
-/* ===== LOGIN ===== */
+/* ===== LOGIN / SIGNUP ===== */
+function switchLoginTab(tab) {
+  const isLogin = tab === 'login';
+  document.getElementById('formLogin').style.display  = isLogin ? '' : 'none';
+  document.getElementById('formSignup').style.display = isLogin ? 'none' : '';
+  document.getElementById('tabLoginBtn').classList.toggle('active', isLogin);
+  document.getElementById('tabSignupBtn').classList.toggle('active', !isLogin);
+  document.getElementById('loginError').style.display  = 'none';
+  document.getElementById('signupError').style.display = 'none';
+  document.getElementById('signupSuccess').style.display = 'none';
+}
+
+async function doSignup() {
+  const name  = document.getElementById('signupName').value.trim();
+  const email = document.getElementById('signupEmail').value.trim();
+  const pass  = document.getElementById('signupPassword').value;
+  const errEl = document.getElementById('signupError');
+  const btn   = document.getElementById('signupBtn');
+  errEl.style.display = 'none';
+  document.getElementById('signupSuccess').style.display = 'none';
+
+  if (!name)  { errEl.innerHTML = `<i class='bx bx-error-circle'></i> Informe seu nome.`;  errEl.style.display = 'flex'; return; }
+  if (!email) { errEl.innerHTML = `<i class='bx bx-error-circle'></i> Informe o e-mail.`;  errEl.style.display = 'flex'; return; }
+  if (pass.length < 6) { errEl.innerHTML = `<i class='bx bx-error-circle'></i> Senha deve ter pelo menos 6 caracteres.`; errEl.style.display = 'flex'; return; }
+
+  btn.disabled = true;
+  btn.innerHTML = `<i class='bx bx-loader-alt bx-spin'></i> Criando conta...`;
+
+  const { error } = await sb.auth.signUp({
+    email, password: pass,
+    options: { data: { display_name: name } }
+  });
+
+  btn.disabled = false;
+  btn.innerHTML = `<i class='bx bx-user-plus'></i> Criar conta`;
+
+  if (error) {
+    errEl.innerHTML = `<i class='bx bx-error-circle'></i> ${error.message}`;
+    errEl.style.display = 'flex';
+    return;
+  }
+
+  document.getElementById('signupSuccess').style.display = 'flex';
+}
+
 function showLoader() {
   document.getElementById('loaderScreen').style.display = 'flex';
 }
@@ -1923,6 +1992,7 @@ async function doLogin() {
   }
 
   currentUserId = data.user.id;
+  await loadCurrentUserProfile();
   const loginScreen = document.getElementById('loginScreen');
   loginScreen.classList.add('out');
   setTimeout(async () => {
@@ -1932,7 +2002,17 @@ async function doLogin() {
   }, 450);
 }
 
+async function loadCurrentUserProfile() {
+  if (!currentUserId) return;
+  const { data } = await sb.from('profiles').select('*').eq('id', currentUserId).maybeSingle();
+  if (data) {
+    currentUserName  = data.display_name;
+    currentUserColor = data.avatar_color || '#6366f1';
+  }
+}
+
 async function startApp() {
+  await loadProfiles();
   const existingData = await loadAll();
   seedIfEmpty(existingData);
   seedV2(existingData);
@@ -2210,7 +2290,7 @@ function notesNewFolder(parentId = null) {
     </div>`, () => {
     const name = document.getElementById('mFolderName').value.trim();
     if (!name) return false;
-    S.notes.push({ id: uid(), type: 'folder', name, parentId, createdAt: new Date().toISOString() });
+    S.notes.push({ id: uid(), type: 'folder', name, parentId, createdAt: new Date().toISOString(), owner_id: currentUserId, owner_name: currentUserName });
     saveNotes();
     renderNotesTree();
     toast('Pasta criada!', 'success');
@@ -2226,7 +2306,7 @@ function notesNewNote(parentId = null) {
     </div>`, () => {
     const name = document.getElementById('mNoteName').value.trim();
     if (!name) return false;
-    const note = { id: uid(), type: 'note', name, parentId, content: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() };
+    const note = { id: uid(), type: 'note', name, parentId, content: '', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), owner_id: currentUserId, owner_name: currentUserName };
     S.notes.push(note);
     saveNotes();
     if (parentId) notesExpandedFolders.add(parentId);
@@ -3022,6 +3102,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   if (session) {
     currentUserId = session.user.id;
+    await loadCurrentUserProfile();
     document.getElementById('loginScreen').remove();
     showLoader();
     await startApp();
@@ -3029,10 +3110,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   document.getElementById('loginBtn').addEventListener('click', doLogin);
+  document.getElementById('signupBtn').addEventListener('click', doSignup);
   document.getElementById('loginEmail').addEventListener('keydown', e => {
     if (e.key === 'Enter') document.getElementById('loginPassword').focus();
   });
   document.getElementById('loginPassword').addEventListener('keydown', e => {
     if (e.key === 'Enter') doLogin();
+  });
+  document.getElementById('signupPassword').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doSignup();
   });
 });
