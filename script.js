@@ -25,45 +25,59 @@ const S = {
 let _krCounter = 0;
 let _selectedMood = 3;
 
-/* ===== SUPABASE ===== */
-const SUPABASE_URL = 'https://zwqcbwiegcndwvqprcdt.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_DQg6Q79FXornM4XKlKGkJw_OQjUGEvz';
-const WORKSPACE_ID = 'main';
-const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-let currentUserId   = null;
-let currentUserName = null;
+/* ===== LOCAL STORAGE ===== */
+const STORAGE_KEY = 'motion_hub_data_v1';
+const ACCESS_PASSWORD = '@Vitor0911071234';
+const ACCESS_SESSION_KEY = 'motion_hub_access_ok_v1';
+const DATA_FIELDS = ['projects', 'tasks', 'ideas', 'contacts', 'transactions', 'docs', 'habits', 'goals', 'reviews', 'notes'];
+let currentUserId   = 'vitor';
+let currentUserName = 'Vitor';
 let currentUserColor = '#6366f1';
 
-async function syncData(updates) {
+function readStore(key, fallback) {
   try {
-    await sb.from('app_data').upsert(
-      { workspace_id: WORKSPACE_ID, ...updates },
-      { onConflict: 'workspace_id' }
-    );
-  } catch (e) { console.error('Sync error:', e); }
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (e) {
+    console.error('Local storage read error:', e);
+    return fallback;
+  }
+}
+
+function writeStore(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch (e) {
+    console.error('Local storage write error:', e);
+    toast?.('Não foi possível salvar no navegador.', 'error');
+  }
+}
+
+function getStoredData() {
+  return readStore(STORAGE_KEY, {});
+}
+
+async function syncData(updates) {
+  const data = { ...getStoredData(), ...updates };
+  writeStore(STORAGE_KEY, data);
 }
 
 async function loadAll() {
-  const { data } = await sb.from('app_data').select('*').eq('workspace_id', WORKSPACE_ID).maybeSingle();
+  const data = getStoredData();
   if (data) {
-    S.projects     = data.projects     || [];
-    S.tasks        = data.tasks        || [];
-    S.ideas        = data.ideas        || [];
-    S.contacts     = data.contacts     || [];
-    S.transactions = data.transactions || [];
-    S.docs         = data.docs         || [];
-    S.habits       = data.habits       || [];
-    S.goals        = data.goals        || [];
-    S.reviews      = data.reviews      || [];
-    S.notes        = data.notes        || [];
+    DATA_FIELDS.forEach(field => { S[field] = data[field] || []; });
   }
   return data;
 }
 
 async function loadProfiles() {
-  const { data } = await sb.from('profiles').select('*');
-  S.profiles = {};
-  (data || []).forEach(p => { S.profiles[p.id] = p; });
+  S.profiles = {
+    vitor: {
+      id: 'vitor',
+      display_name: 'Vitor',
+      avatar_color: currentUserColor
+    }
+  };
 }
 
 function ownerBadge(item) {
@@ -1819,6 +1833,7 @@ function bindEvents() {
   // Sidebar navigation
   document.querySelectorAll('.nav-item').forEach(item => {
     item.addEventListener('click', e => {
+      if (item.classList.contains('nav-external')) return;
       e.preventDefault();
       navigateTo(item.dataset.section);
     });
@@ -1912,50 +1927,7 @@ function bindEvents() {
   });
 }
 
-/* ===== LOGIN / SIGNUP ===== */
-function switchLoginTab(tab) {
-  const isLogin = tab === 'login';
-  document.getElementById('formLogin').style.display  = isLogin ? '' : 'none';
-  document.getElementById('formSignup').style.display = isLogin ? 'none' : '';
-  document.getElementById('tabLoginBtn').classList.toggle('active', isLogin);
-  document.getElementById('tabSignupBtn').classList.toggle('active', !isLogin);
-  document.getElementById('loginError').style.display  = 'none';
-  document.getElementById('signupError').style.display = 'none';
-  document.getElementById('signupSuccess').style.display = 'none';
-}
-
-async function doSignup() {
-  const name  = document.getElementById('signupName').value.trim();
-  const email = document.getElementById('signupEmail').value.trim();
-  const pass  = document.getElementById('signupPassword').value;
-  const errEl = document.getElementById('signupError');
-  const btn   = document.getElementById('signupBtn');
-  errEl.style.display = 'none';
-  document.getElementById('signupSuccess').style.display = 'none';
-
-  if (!name)  { errEl.innerHTML = `<i class='bx bx-error-circle'></i> Informe seu nome.`;  errEl.style.display = 'flex'; return; }
-  if (!email) { errEl.innerHTML = `<i class='bx bx-error-circle'></i> Informe o e-mail.`;  errEl.style.display = 'flex'; return; }
-  if (pass.length < 6) { errEl.innerHTML = `<i class='bx bx-error-circle'></i> Senha deve ter pelo menos 6 caracteres.`; errEl.style.display = 'flex'; return; }
-
-  btn.disabled = true;
-  btn.innerHTML = `<i class='bx bx-loader-alt bx-spin'></i> Criando conta...`;
-
-  const { error } = await sb.auth.signUp({
-    email, password: pass,
-    options: { data: { display_name: name } }
-  });
-
-  btn.disabled = false;
-  btn.innerHTML = `<i class='bx bx-user-plus'></i> Criar conta`;
-
-  if (error) {
-    errEl.innerHTML = `<i class='bx bx-error-circle'></i> ${error.message}`;
-    errEl.style.display = 'flex';
-    return;
-  }
-
-  document.getElementById('signupSuccess').style.display = 'flex';
-}
+/* ===== PASSWORD ACCESS ===== */
 
 function showLoader() {
   document.getElementById('loaderScreen').style.display = 'flex';
@@ -1967,32 +1939,7 @@ function showLoginError(msg) {
   err.style.display = 'flex';
 }
 
-async function doLogin() {
-  const email = document.getElementById('loginEmail').value.trim();
-  const pass  = document.getElementById('loginPassword').value;
-  const btn   = document.getElementById('loginBtn');
-  const input = document.getElementById('loginPassword');
-
-  if (!email || !pass) { showLoginError('Preencha e-mail e senha.'); return; }
-  document.getElementById('loginError').style.display = 'none';
-
-  btn.disabled = true;
-  btn.innerHTML = `<i class='bx bx-loader-alt bx-spin'></i> Entrando...`;
-
-  const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
-
-  if (error) {
-    btn.disabled = false;
-    btn.innerHTML = `<i class='bx bx-log-in-circle'></i> Entrar`;
-    showLoginError('E-mail ou senha incorretos.');
-    input.classList.remove('input-shake');
-    void input.offsetWidth;
-    input.classList.add('input-shake');
-    return;
-  }
-
-  currentUserId = data.user.id;
-  await loadCurrentUserProfile();
+function unlockApp() {
   const loginScreen = document.getElementById('loginScreen');
   loginScreen.classList.add('out');
   setTimeout(async () => {
@@ -2002,13 +1949,29 @@ async function doLogin() {
   }, 450);
 }
 
-async function loadCurrentUserProfile() {
-  if (!currentUserId) return;
-  const { data } = await sb.from('profiles').select('*').eq('id', currentUserId).maybeSingle();
-  if (data) {
-    currentUserName  = data.display_name;
-    currentUserColor = data.avatar_color || '#6366f1';
+function checkAccessPassword() {
+  const pass = document.getElementById('accessPassword').value;
+  const btn = document.getElementById('accessBtn');
+  const input = document.getElementById('accessPassword');
+
+  if (!pass) { showLoginError('Informe a senha.'); return; }
+  document.getElementById('loginError').style.display = 'none';
+
+  btn.disabled = true;
+  btn.innerHTML = `<i class='bx bx-loader-alt bx-spin'></i> Entrando...`;
+
+  if (pass !== ACCESS_PASSWORD) {
+    btn.disabled = false;
+    btn.innerHTML = `<i class='bx bx-log-in-circle'></i> Entrar`;
+    showLoginError('Senha incorreta.');
+    input.classList.remove('input-shake');
+    void input.offsetWidth;
+    input.classList.add('input-shake');
+    return;
   }
+
+  writeStore(ACCESS_SESSION_KEY, { ok: true });
+  unlockApp();
 }
 
 async function startApp() {
@@ -3098,26 +3061,18 @@ function initJarvis() {
 
 /* ===== INIT ===== */
 document.addEventListener('DOMContentLoaded', async () => {
-  const { data: { session } } = await sb.auth.getSession();
+  const access = readStore(ACCESS_SESSION_KEY, null);
 
-  if (session) {
-    currentUserId = session.user.id;
-    await loadCurrentUserProfile();
+  if (access?.ok) {
     document.getElementById('loginScreen').remove();
     showLoader();
     await startApp();
     return;
   }
 
-  document.getElementById('loginBtn').addEventListener('click', doLogin);
-  document.getElementById('signupBtn').addEventListener('click', doSignup);
-  document.getElementById('loginEmail').addEventListener('keydown', e => {
-    if (e.key === 'Enter') document.getElementById('loginPassword').focus();
+  document.getElementById('accessBtn').addEventListener('click', checkAccessPassword);
+  document.getElementById('accessPassword').addEventListener('keydown', e => {
+    if (e.key === 'Enter') checkAccessPassword();
   });
-  document.getElementById('loginPassword').addEventListener('keydown', e => {
-    if (e.key === 'Enter') doLogin();
-  });
-  document.getElementById('signupPassword').addEventListener('keydown', e => {
-    if (e.key === 'Enter') doSignup();
-  });
+  document.getElementById('accessPassword').focus();
 });

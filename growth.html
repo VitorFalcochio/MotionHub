@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Growth Hub</title>
+  <link rel="icon" type="image/png" href="4.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css" rel="stylesheet">
+  <link rel="stylesheet" href="growth-style.css">
+</head>
+<body>
+  <aside class="gh-sidebar">
+    <a class="gh-back" href="index.html"><i class='bx bx-arrow-back'></i></a>
+    <img src="2.png" alt="m." class="gh-mark">
+    <nav class="gh-nav" id="ghNav">
+      <button class="active" data-tab="overview"><i class='bx bx-grid-alt'></i><span>Visao geral</span></button>
+      <button data-tab="campaigns"><i class='bx bx-broadcast'></i><span>Campanhas</span></button>
+      <button data-tab="creatives"><i class='bx bx-images'></i><span>Criativos</span></button>
+      <button data-tab="leads"><i class='bx bx-user-plus'></i><span>Leads</span></button>
+      <button data-tab="units"><i class='bx bx-map-pin'></i><span>Unidades</span></button>
+      <button data-tab="reports"><i class='bx bx-file'></i><span>Relatorios</span></button>
+    </nav>
+  </aside>
+
+  <main class="gh-app">
+    <header class="gh-header">
+      <div>
+        <div class="gh-kicker">Operacao de leads e trafego pago</div>
+        <h1>Growth Hub</h1>
+      </div>
+      <div class="gh-controls">
+        <select id="clientSelect" class="gh-select"></select>
+        <select id="periodSelect" class="gh-select">
+          <option>Junho 2026</option>
+          <option>Maio 2026</option>
+          <option>Trimestre atual</option>
+        </select>
+        <button class="gh-primary" id="newItemBtn"><i class='bx bx-plus'></i><span>Novo item</span></button>
+      </div>
+    </header>
+
+    <section class="gh-command">
+      <div>
+        <h2 id="clientName">Operacao Growth</h2>
+        <p id="clientSummary">Painel para acompanhar campanhas, criativos, leads, unidades e relatorios por cliente.</p>
+      </div>
+      <div class="gh-integrations">
+        <span><i class='bx bx-data'></i> Meta Ads pronto</span>
+        <span><i class='bx bxl-whatsapp'></i> WhatsApp/CRM</span>
+        <span><i class='bx bx-spreadsheet'></i> Planilhas</span>
+      </div>
+    </section>
+
+    <section class="gh-tab active" id="tab-overview">
+      <div class="gh-metrics" id="metricsGrid"></div>
+      <div class="gh-overview-grid">
+        <div class="gh-panel">
+          <div class="gh-panel-head">
+            <h3>Evolucao de leads</h3>
+            <button class="gh-icon" id="editTrendBtn" title="Editar grafico"><i class='bx bx-pencil'></i></button>
+          </div>
+          <div class="gh-chart" id="leadChart"></div>
+        </div>
+        <div class="gh-panel">
+          <div class="gh-panel-head">
+            <h3>Proximas acoes</h3>
+            <button class="gh-icon" data-add="actions" title="Nova acao"><i class='bx bx-plus'></i></button>
+          </div>
+          <div id="actionsList"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="gh-tab" id="tab-campaigns">
+      <div class="gh-section-head">
+        <div><h2>Campanhas</h2><p>Planejamento, verba, publico, status e resultado principal.</p></div>
+        <button class="gh-primary" data-add="campaigns"><i class='bx bx-plus'></i>Campanha</button>
+      </div>
+      <div class="gh-table-wrap"><table class="gh-table" id="campaignsTable"></table></div>
+    </section>
+
+    <section class="gh-tab" id="tab-creatives">
+      <div class="gh-section-head">
+        <div><h2>Biblioteca de criativos</h2><p>Cards visuais para organizar angulos, categorias, objetivos e status.</p></div>
+        <button class="gh-primary" data-add="creatives"><i class='bx bx-plus'></i>Criativo</button>
+      </div>
+      <div class="gh-card-grid" id="creativesGrid"></div>
+    </section>
+
+    <section class="gh-tab" id="tab-leads">
+      <div class="gh-section-head">
+        <div><h2>Leads</h2><p>Pipeline para acompanhar origem, interesse, qualificacao e destino.</p></div>
+        <button class="gh-primary" data-add="leads"><i class='bx bx-plus'></i>Lead</button>
+      </div>
+      <div class="gh-leads-board" id="leadsBoard"></div>
+    </section>
+
+    <section class="gh-tab" id="tab-units">
+      <div class="gh-section-head">
+        <div><h2>Franquias / unidades</h2><p>Operacao por cidade, responsavel, campanhas vinculadas e volume de leads.</p></div>
+        <button class="gh-primary" data-add="units"><i class='bx bx-plus'></i>Unidade</button>
+      </div>
+      <div class="gh-card-grid units" id="unitsGrid"></div>
+    </section>
+
+    <section class="gh-tab" id="tab-reports">
+      <div class="gh-section-head">
+        <div><h2>Relatorios mensais</h2><p>Resumo executivo dos testes, aprendizados e proximos passos.</p></div>
+        <button class="gh-primary" data-add="reports"><i class='bx bx-plus'></i>Relatorio</button>
+      </div>
+      <div class="gh-report-grid" id="reportsGrid"></div>
+    </section>
+  </main>
+
+  <div class="gh-modal-overlay" id="modalOverlay">
+    <div class="gh-modal">
+      <div class="gh-modal-head">
+        <h3 id="modalTitle">Editar</h3>
+        <button class="gh-icon" id="modalClose"><i class='bx bx-x'></i></button>
+      </div>
+      <div class="gh-modal-body" id="modalBody"></div>
+      <div class="gh-modal-foot">
+        <button class="gh-secondary" id="modalCancel">Cancelar</button>
+        <button class="gh-primary" id="modalSave">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="gh-toast" id="toast"></div>
+  <script src="growth.js"></script>
+</body>
+</html>

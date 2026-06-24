@@ -2857,4 +2857,3 @@ img { max-width: 100%; }
 }
 .jarvis-send:hover:not(:disabled) { background: #1d4ed8; transform: scale(1.06); }
 .jarvis-send:disabled { opacity: 0.35; cursor: not-allowed; }
-

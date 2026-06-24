@@ -13,61 +13,27 @@
 </head>
 <body>
 
-<!-- Login Screen -->
+<!-- Password Screen -->
 <div class="login-screen" id="loginScreen">
   <div class="login-card">
     <div class="login-logo">
       <img src="3.png" alt="motion." class="login-logo-img">
     </div>
 
-    <!-- Abas -->
-    <div class="login-tabs">
-      <button class="login-tab active" id="tabLoginBtn" onclick="switchLoginTab('login')">Entrar</button>
-      <button class="login-tab" id="tabSignupBtn" onclick="switchLoginTab('signup')">Criar conta</button>
-    </div>
-
-    <!-- Formulário de Login -->
-    <div id="formLogin">
-      <h2 class="login-title">Bem-vindo de volta</h2>
-      <p class="login-sub">Acesse o workspace compartilhado</p>
-      <div class="form-group">
-        <label class="form-label">E-mail</label>
-        <input type="email" class="form-input" id="loginEmail" placeholder="seu@email.com" autocomplete="email">
-      </div>
+    <!-- Password Form -->
+    <div id="formAccess">
+      <h2 class="login-title">Acesso restrito</h2>
+      <p class="login-sub">Digite a senha para abrir o Motion Hub</p>
       <div class="form-group">
         <label class="form-label">Senha</label>
-        <input type="password" class="form-input" id="loginPassword" placeholder="••••••••" autocomplete="current-password">
+        <input type="password" class="form-input" id="accessPassword" placeholder="••••••••" autocomplete="current-password">
       </div>
       <div class="login-error" id="loginError"><i class='bx bx-error-circle'></i></div>
-      <button class="btn-primary login-btn" id="loginBtn">
+      <button class="btn-primary login-btn" id="accessBtn">
         <i class='bx bx-log-in-circle'></i> Entrar
       </button>
     </div>
 
-    <!-- Formulário de Cadastro -->
-    <div id="formSignup" style="display:none">
-      <h2 class="login-title">Criar conta</h2>
-      <p class="login-sub">Junte-se ao workspace</p>
-      <div class="form-group">
-        <label class="form-label">Seu nome</label>
-        <input type="text" class="form-input" id="signupName" placeholder="Como quer ser chamado?" autocomplete="name">
-      </div>
-      <div class="form-group">
-        <label class="form-label">E-mail</label>
-        <input type="email" class="form-input" id="signupEmail" placeholder="seu@email.com" autocomplete="email">
-      </div>
-      <div class="form-group">
-        <label class="form-label">Senha</label>
-        <input type="password" class="form-input" id="signupPassword" placeholder="Mínimo 6 caracteres" autocomplete="new-password">
-      </div>
-      <div class="login-error" id="signupError"><i class='bx bx-error-circle'></i></div>
-      <div class="signup-success" id="signupSuccess" style="display:none">
-        <i class='bx bx-check-circle'></i> Conta criada! Verifique seu e-mail e depois entre.
-      </div>
-      <button class="btn-primary login-btn" id="signupBtn">
-        <i class='bx bx-user-plus'></i> Criar conta
-      </button>
-    </div>
 
   </div>
 </div>
@@ -123,6 +89,9 @@
       </a>
       <a class="nav-item" data-section="crm">
         <i class='bx bx-user-circle'></i><span>CRM</span>
+      </a>
+      <a class="nav-item nav-external" href="growth.html">
+        <i class='bx bx-line-chart'></i><span>Growth Hub</span>
       </a>
       <div class="nav-divider"></div>
       <div class="nav-label">Gestão</div>
@@ -502,7 +471,6 @@
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="script.js"></script>
 </body>
 </html>
