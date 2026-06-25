@@ -2465,6 +2465,31 @@ function initNotes() {
 
 const JARVIS_MODEL    = 'llama-3.3-70b-versatile';
 const JARVIS_KEY_STORE = 'jarvis_groq_key';
+const CODE_ASSET_INDEX_STORE = 'motion_code_assets_index_v1';
+const CODE_ASSET_SEARCH_REQUEST_STORE = 'motion_code_assets_search_request_v1';
+
+const JARVIS_ASSET_FALLBACK = [
+  { id: 'asset-1', title: 'Magnetic CTA', category: 'buttons', categoryLabel: 'Botoes', level: 'Intermediario', desc: 'Botao escuro com brilho e resposta magnetica ao cursor.', tags: ['cta','hover','js','landing','dark'], hasJs: true },
+  { id: 'asset-2', title: 'Liquid Button', category: 'buttons', categoryLabel: 'Botoes', level: 'Basico', desc: 'Botao com onda liquida animada para telas modernas.', tags: ['button','css','motion','landing'], hasJs: false },
+  { id: 'asset-3', title: 'Neon Border Button', category: 'buttons', categoryLabel: 'Botoes', level: 'Basico', desc: 'Botao dark com borda neon animada sem dependencias.', tags: ['neon','css','dark','landing'], hasJs: false },
+  { id: 'asset-4', title: 'Icon Micro Button Set', category: 'buttons', categoryLabel: 'Botoes', level: 'Basico', desc: 'Conjunto de botoes compactos para toolbars.', tags: ['toolbar','icons','app'], hasJs: false },
+  { id: 'asset-5', title: 'Split Action Button', category: 'buttons', categoryLabel: 'Botoes', level: 'Intermediario', desc: 'Acao principal com menu secundario compacto.', tags: ['menu','action','dashboard'], hasJs: false },
+  { id: 'asset-6', title: 'Pulse Ring CTA', category: 'buttons', categoryLabel: 'Botoes', level: 'Basico', desc: 'Chamada de acao com anel pulsante.', tags: ['pulse','cta','landing'], hasJs: false },
+  { id: 'asset-7', title: 'Reveal On Scroll', category: 'animations', categoryLabel: 'Animacoes', level: 'Intermediario', desc: 'Entrada suave de elementos conforme aparecem na tela.', tags: ['scroll','observer','landing'], hasJs: true },
+  { id: 'asset-8', title: 'Counter Up', category: 'animations', categoryLabel: 'Animacoes', level: 'Intermediario', desc: 'Contador numerico animado para metricas.', tags: ['metric','number','dashboard'], hasJs: true },
+  { id: 'asset-9', title: 'Parallax Tilt', category: 'animations', categoryLabel: 'Animacoes', level: 'Intermediario', desc: 'Card inclina com o movimento do cursor.', tags: ['tilt','hover','card'], hasJs: true },
+  { id: 'asset-10', title: 'Typewriter Headline', category: 'text', categoryLabel: 'Text Effects', level: 'Intermediario', desc: 'Texto digitado automaticamente com cursor.', tags: ['headline','typing','landing'], hasJs: true },
+  { id: 'asset-11', title: 'Gradient Text Shine', category: 'text', categoryLabel: 'Text Effects', level: 'Basico', desc: 'Headline com gradiente animado de brilho.', tags: ['gradient','headline','landing'], hasJs: false },
+  { id: 'asset-12', title: 'Scramble Text Hover', category: 'text', categoryLabel: 'Text Effects', level: 'Avancado', desc: 'Texto embaralha letras ao passar o mouse.', tags: ['hover','letters','dark'], hasJs: true },
+  { id: 'asset-13', title: 'Glass Product Card', category: 'cards', categoryLabel: 'Cards', level: 'Basico', desc: 'Card glassmorphism com acao e badge.', tags: ['glass','product','landing','dark'], hasJs: false },
+  { id: 'asset-14', title: 'Pricing Card', category: 'cards', categoryLabel: 'Cards', level: 'Basico', desc: 'Card de plano com lista de beneficios.', tags: ['pricing','saas','landing'], hasJs: false },
+  { id: 'asset-15', title: 'Stat Stack Card', category: 'cards', categoryLabel: 'Cards', level: 'Basico', desc: 'Card compacto para dashboard com delta.', tags: ['dashboard','metric','dark'], hasJs: false },
+  { id: 'asset-21', title: 'Mesh Gradient Background', category: 'backgrounds', categoryLabel: 'Backgrounds', level: 'Basico', desc: 'Fundo com manchas suaves animadas.', tags: ['mesh','gradient','hero','landing'], hasJs: false },
+  { id: 'asset-22', title: 'Grid Glow Background', category: 'backgrounds', categoryLabel: 'Backgrounds', level: 'Basico', desc: 'Grade tecnica para dashboards e landing pages dark.', tags: ['grid','background','dark','hero'], hasJs: false },
+  { id: 'asset-25', title: 'Animated Nav Pill', category: 'menus', categoryLabel: 'Menus', level: 'Intermediario', desc: 'Menu com indicador que acompanha a aba ativa.', tags: ['nav','tabs','landing'], hasJs: true },
+  { id: 'asset-29', title: 'Floating Label Input', category: 'forms', categoryLabel: 'Inputs', level: 'Basico', desc: 'Input com label flutuante acessivel.', tags: ['input','form','login'], hasJs: false },
+  { id: 'asset-33', title: 'Bento Layout', category: 'layouts', categoryLabel: 'Layouts', level: 'Basico', desc: 'Layout bento para apresentar features.', tags: ['bento','features','landing'], hasJs: false }
+];
 
 let jarvisOpen     = false;
 let jarvisMessages = [];
@@ -2801,8 +2826,33 @@ const JARVIS_TOOLS = [
     type: 'function',
     function: {
       name: 'open_code_assets',
-      description: 'Abre a biblioteca Code Assets do Motion Hub em assets.html.',
-      parameters: { type: 'object', properties: {}, required: [] }
+      description: 'Abre a biblioteca Code Assets do Motion Hub em assets.html, opcionalmente ja filtrada por busca, categoria ou asset.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query:    { type: 'string' },
+          category: { type: 'string', enum: ['all','animations','buttons','cards','loaders','backgrounds','menus','forms','text','layouts'] },
+          asset_id: { type: 'string' }
+        },
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'search_code_assets',
+      description: 'Pesquisa na biblioteca Code Assets e retorna os melhores snippets para um caso de uso. Use antes de abrir/filtrar a biblioteca.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query:    { type: 'string', description: 'Ex: 5 botoes bons para landing page dark' },
+          category: { type: 'string', enum: ['all','animations','buttons','cards','loaders','backgrounds','menus','forms','text','layouts'] },
+          limit:    { type: 'number', minimum: 1, maximum: 10 },
+          open:     { type: 'boolean', description: 'Se true, abre assets.html com os filtros aplicados depois de pesquisar.' }
+        },
+        required: ['query']
+      }
     }
   },
   {
@@ -2834,6 +2884,115 @@ const JARVIS_TOOLS = [
     }
   }
 ];
+
+function jarvisNormalize(value) {
+  return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+function jarvisReadAssetIndex() {
+  try {
+    const stored = JSON.parse(localStorage.getItem(CODE_ASSET_INDEX_STORE) || '{}');
+    if (Array.isArray(stored.assets) && stored.assets.length) return stored.assets;
+  } catch (_) {}
+  return JARVIS_ASSET_FALLBACK;
+}
+
+function jarvisSearchCodeAssets(args = {}) {
+  const category = args.category || 'all';
+  const limit = Math.min(Math.max(+args.limit || 5, 1), 10);
+  const rawQuery = args.query || '';
+  const query = jarvisNormalize(rawQuery);
+  const terms = query.split(/\s+/).filter(term => term.length > 2);
+  const aliases = {
+    botao: 'buttons',
+    botoes: 'buttons',
+    button: 'buttons',
+    buttons: 'buttons',
+    input: 'forms',
+    inputs: 'forms',
+    form: 'forms',
+    formulario: 'forms',
+    card: 'cards',
+    cards: 'cards',
+    loader: 'loaders',
+    loading: 'loaders',
+    menu: 'menus',
+    nav: 'menus',
+    texto: 'text',
+    headline: 'text',
+    animacao: 'animations',
+    animacoes: 'animations',
+    background: 'backgrounds',
+    fundo: 'backgrounds',
+    layout: 'layouts',
+    landing: 'layouts'
+  };
+  const inferredCategory = category !== 'all' ? category : terms.map(term => aliases[term]).find(Boolean) || 'all';
+
+  const results = jarvisReadAssetIndex()
+    .filter(asset => inferredCategory === 'all' || asset.category === inferredCategory)
+    .map(asset => {
+      const title = jarvisNormalize(asset.title);
+      const tags = jarvisNormalize((asset.tags || []).join(' '));
+      const desc = jarvisNormalize(asset.desc);
+      const cat = jarvisNormalize(`${asset.category} ${asset.categoryLabel || ''}`);
+      const haystack = `${title} ${tags} ${desc} ${cat}`;
+      let score = 0;
+      terms.forEach(term => {
+        if (title.includes(term)) score += 8;
+        if (tags.includes(term)) score += 5;
+        if (desc.includes(term)) score += 3;
+        if (cat.includes(term)) score += 4;
+        if (haystack.includes(term)) score += 1;
+      });
+      if (inferredCategory !== 'all' && asset.category === inferredCategory) score += 10;
+      if (query.includes('dark') && haystack.includes('dark')) score += 8;
+      if (query.includes('landing') && haystack.includes('landing')) score += 6;
+      if (query.includes('cta') && haystack.includes('cta')) score += 6;
+      return { ...asset, score };
+    })
+    .filter(asset => asset.score > 0 || inferredCategory !== 'all')
+    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title))
+    .slice(0, limit)
+    .map(asset => ({
+      id: asset.id,
+      title: asset.title,
+      category: asset.category,
+      categoryLabel: asset.categoryLabel || asset.category,
+      level: asset.level,
+      desc: asset.desc,
+      tags: asset.tags || [],
+      hasJs: Boolean(asset.hasJs),
+      score: asset.score
+    }));
+
+  const request = {
+    query: rawQuery,
+    category: inferredCategory,
+    asset_id: results[0]?.id || '',
+    result_ids: results.map(asset => asset.id),
+    createdAt: new Date().toISOString()
+  };
+  localStorage.setItem(CODE_ASSET_SEARCH_REQUEST_STORE, JSON.stringify(request));
+
+  return { query: rawQuery, category: inferredCategory, count: results.length, results };
+}
+
+function jarvisOpenCodeAssets(args = {}) {
+  const params = new URLSearchParams();
+  if (args.query) params.set('q', args.query);
+  if (args.category && args.category !== 'all') params.set('category', args.category);
+  if (args.asset_id) params.set('asset', args.asset_id);
+  const request = {
+    query: args.query || '',
+    category: args.category || 'all',
+    asset_id: args.asset_id || '',
+    createdAt: new Date().toISOString()
+  };
+  localStorage.setItem(CODE_ASSET_SEARCH_REQUEST_STORE, JSON.stringify(request));
+  window.location.href = `assets.html${params.toString() ? `?${params}` : ''}`;
+  return { success: true, target: 'assets.html', ...request };
+}
 
 function jarvisRunTool(name, args) {
   const today = new Date().toISOString().slice(0, 10);
@@ -3021,9 +3180,20 @@ function jarvisRunTool(name, args) {
         .map(t => ({ id: t.id, type: t.type, desc: t.desc, value: t.value, project: t.project, date: t.date }));
     }
 
+    case 'search_code_assets': {
+      const search = jarvisSearchCodeAssets(args);
+      if (args.open) {
+        jarvisOpenCodeAssets({
+          query: args.query,
+          category: search.category,
+          asset_id: search.results[0]?.id || ''
+        });
+      }
+      return search;
+    }
+
     case 'open_code_assets':
-      window.location.href = 'assets.html';
-      return { success: true, target: 'assets.html' };
+      return jarvisOpenCodeAssets(args);
 
     case 'show_choices':
       jarvisAppendChoices(args.title, args.description || '', args.options || []);
@@ -3092,6 +3262,8 @@ Use as ferramentas disponíveis sempre que o usuário pedir para criar, mover, a
 
 Secao atual do usuario no Hub: ${sectionMeta[S.section]?.label || S.section}.
 Use show_choices quando houver varios caminhos bons, quando faltar uma decisao importante, ou quando o usuario pedir um plano. As opcoes devem ser curtas, acionaveis e em portugues brasileiro.`
+        + `
+Para pedidos sobre componentes, snippets, botoes, inputs, cards, loaders, animacoes ou landing pages, use search_code_assets. Quando fizer sentido, ofereca abrir a biblioteca filtrada com open_code_assets.`
       }, ...messages],
       tools: JARVIS_TOOLS,
       tool_choice: 'auto',

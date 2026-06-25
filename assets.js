@@ -470,6 +470,8 @@ const assets = [...snippets, ...generatedAssets, ...externalAssets].map((asset, 
 }));
 
 const LIBRARY_STORE_KEY = 'motion_code_assets_library_v1';
+const ASSET_INDEX_STORE_KEY = 'motion_code_assets_index_v1';
+const ASSET_SEARCH_REQUEST_KEY = 'motion_code_assets_search_request_v1';
 const DEFAULT_COLLECTIONS = [
   { id: 'assets-legais', name: 'Assets Legais' },
   { id: 'landing', name: 'Landing Pages' },
@@ -501,6 +503,22 @@ let libraryStore = readLibraryStore();
 
 function saveLibraryStore() {
   localStorage.setItem(LIBRARY_STORE_KEY, JSON.stringify(libraryStore));
+}
+
+function publishAssetIndex() {
+  const categoryLabels = Object.fromEntries(categories.map(category => [category.id, category.label]));
+  const index = assets.map(asset => ({
+    id: asset.id,
+    title: asset.title,
+    category: asset.category,
+    categoryLabel: categoryLabels[asset.category] || asset.category,
+    level: asset.level,
+    desc: asset.desc,
+    tags: asset.tags,
+    hasJs: Boolean((asset.js || '').trim()),
+    collection: asset.defaultCollection || ''
+  }));
+  localStorage.setItem(ASSET_INDEX_STORE_KEY, JSON.stringify({ updatedAt: new Date().toISOString(), assets: index }));
 }
 
 const state = {
@@ -550,12 +568,39 @@ const els = {
   toast: document.getElementById('toast')
 };
 
+function normalizeText(value) {
+  return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
 function escapeHtml(value) {
   return String(value || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function getCategory(id) {
   return categories.find(category => category.id === id) || categories[0];
+}
+
+function applyInitialAssetRequest() {
+  const params = new URLSearchParams(window.location.search);
+  let storedRequest = null;
+  try {
+    storedRequest = JSON.parse(localStorage.getItem(ASSET_SEARCH_REQUEST_KEY) || 'null');
+  } catch (_) {
+    storedRequest = null;
+  }
+
+  const query = params.get('q') || storedRequest?.query || '';
+  const category = params.get('category') || storedRequest?.category || '';
+  const assetId = params.get('asset') || storedRequest?.asset_id || storedRequest?.assetId || '';
+
+  if (category && categories.some(item => item.id === category)) state.category = category;
+  if (query) {
+    state.query = query;
+    if (els.search) els.search.value = query;
+  }
+  if (assetId && assets.some(asset => asset.id === assetId)) state.activeId = assetId;
+
+  if (storedRequest) localStorage.removeItem(ASSET_SEARCH_REQUEST_KEY);
 }
 
 function filteredAssets() {
@@ -911,6 +956,8 @@ function bindEvents() {
   els.copyFullAction.addEventListener('click', copyCurrentAsset);
 }
 
+publishAssetIndex();
+applyInitialAssetRequest();
 renderNav();
 renderCollections();
 renderGrid();
