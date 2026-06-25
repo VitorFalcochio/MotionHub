@@ -236,6 +236,7 @@ function seedNotes(existingData) {
 /* ===== NAVIGATION ===== */
 const sectionMeta = {
   dashboard:  { label: 'Dashboard',        btnLabel: null },
+  jarvis:     { label: 'Jarvis',           btnLabel: null },
   agenda:     { label: 'Agenda',           btnLabel: 'Nova Tarefa' },
   projects:   { label: 'Projetos',          btnLabel: 'Novo Projeto' },
   tasks:      { label: 'Tarefas',           btnLabel: 'Nova Tarefa' },
@@ -273,6 +274,7 @@ function navigateTo(section) {
 
 function renderSection(section) {
   if (section === 'agenda') renderAgenda();
+  else if (section === 'jarvis') renderJarvisPage();
   else if (section === 'dashboard') renderDashboard();
   else if (section === 'projects') renderProjects();
   else if (section === 'tasks') renderKanban();
@@ -2600,6 +2602,35 @@ const JARVIS_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'create_goal',
+      description: 'Cria uma meta/OKR simples. Use quando o usuario pedir para transformar uma decisao em objetivo acompanhavel.',
+      parameters: {
+        type: 'object',
+        properties: {
+          objective: { type: 'string' },
+          quarter:   { type: 'string', description: 'Ex: Q3 2026' },
+          status:    { type: 'string', enum: ['No prazo','Em risco','Atrasado','Concluido'] },
+          key_results: {
+            type: 'array',
+            items: {
+              type: 'object',
+              properties: {
+                desc:    { type: 'string' },
+                current: { type: 'number' },
+                target:  { type: 'number' },
+                unit:    { type: 'string' }
+              },
+              required: ['desc','target']
+            }
+          }
+        },
+        required: ['objective']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'create_idea',
       description: 'Registra uma nova ideia de negócio.',
       parameters: {
@@ -2627,7 +2658,7 @@ const JARVIS_TOOLS = [
         properties: {
           section: {
             type: 'string',
-            enum: ['dashboard','projects','tasks','habits','agenda','ideas','goals','crm','financial','review','prompts']
+            enum: ['dashboard','jarvis','projects','tasks','habits','agenda','ideas','goals','crm','financial','review','prompts','notes']
           }
         },
         required: ['section']
@@ -2640,6 +2671,52 @@ const JARVIS_TOOLS = [
       name: 'list_contacts',
       description: 'Lista contatos do CRM.',
       parameters: { type: 'object', properties: {}, required: [] }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_contact',
+      description: 'Cria um contato no CRM.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name:      { type: 'string' },
+          type:      { type: 'string', enum: ['Lead','Cliente','Parceiro','Fornecedor','Investidor'] },
+          company:   { type: 'string' },
+          contact:   { type: 'string' },
+          status:    { type: 'string', enum: ['Novo','Em conversa','Reuniao marcada','Proposta enviada','Fechado','Perdido'] },
+          next_step: { type: 'string' },
+          notes:     { type: 'string' }
+        },
+        required: ['name']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_docs',
+      description: 'Lista documentos, prompts, scripts e estrategias salvos em Prompts & Docs.',
+      parameters: { type: 'object', properties: {}, required: [] }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_doc',
+      description: 'Cria um documento em Prompts & Docs.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title:    { type: 'string' },
+          category: { type: 'string', enum: ['Prompt','Script','Estrategia','Briefing','Texto de venda','Anotacao'] },
+          content:  { type: 'string' },
+          project:  { type: 'string' },
+          date:     { type: 'string', description: 'YYYY-MM-DD, padrao hoje' }
+        },
+        required: ['title','content']
+      }
     }
   },
   {
@@ -2705,6 +2782,54 @@ const JARVIS_TOOLS = [
           date:    { type: 'string', description: 'YYYY-MM-DD, padrão hoje' }
         },
         required: ['type','desc','value']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_transactions',
+      description: 'Lista ultimos lancamentos financeiros.',
+      parameters: {
+        type: 'object',
+        properties: { limit: { type: 'number', minimum: 1, maximum: 30 } },
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'open_code_assets',
+      description: 'Abre a biblioteca Code Assets do Motion Hub em assets.html.',
+      parameters: { type: 'object', properties: {}, required: [] }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'show_choices',
+      description: 'Mostra uma caixa de escolha clicavel para o usuario quando houver caminhos possiveis, confirmacao ou planejamento em etapas.',
+      parameters: {
+        type: 'object',
+        properties: {
+          title:       { type: 'string' },
+          description: { type: 'string' },
+          options: {
+            type: 'array',
+            minItems: 2,
+            maxItems: 4,
+            items: {
+              type: 'object',
+              properties: {
+                label:  { type: 'string' },
+                prompt: { type: 'string', description: 'Texto que sera enviado ou colocado na caixa quando o usuario clicar' }
+              },
+              required: ['label','prompt']
+            }
+          }
+        },
+        required: ['title','options']
       }
     }
   }
@@ -2799,6 +2924,31 @@ function jarvisRunTool(name, args) {
     case 'list_goals':
       return S.goals.map(g => ({ id: g.id, objective: g.objective, quarter: g.quarter, status: g.status, keyResults: g.keyResults }));
 
+    case 'create_goal': {
+      const currentQuarter = `Q${Math.floor(new Date().getMonth() / 3) + 1} ${new Date().getFullYear()}`;
+      const keyResults = (args.key_results || []).map(kr => ({
+        id: uid(),
+        desc: kr.desc,
+        current: +kr.current || 0,
+        target: +kr.target || 1,
+        unit: kr.unit || ''
+      })).filter(kr => kr.desc);
+      const goalStatusMap = { Concluido: 'Conclu\u00eddo' };
+      const goal = {
+        id: uid(),
+        objective: args.objective,
+        quarter: args.quarter || currentQuarter,
+        status: goalStatusMap[args.status] || args.status || 'No prazo',
+        keyResults,
+        owner_id: currentUserId,
+        owner_name: currentUserName
+      };
+      S.goals.unshift(goal);
+      saveGoals();
+      renderGoals();
+      return { success: true, goal };
+    }
+
     case 'create_idea': {
       const idea = { id: uid(), name: args.name, problem: args.problem||'', audience: args.audience||'', monetization: args.monetization||'', potential: args.potential||'Médio', status: args.status||'Em análise', notes: args.notes||'' };
       S.ideas.push(idea);
@@ -2814,6 +2964,47 @@ function jarvisRunTool(name, args) {
     case 'list_contacts':
       return S.contacts.map(c => ({ id: c.id, name: c.name, type: c.type, company: c.company, status: c.status, nextStep: c.nextStep }));
 
+    case 'create_contact': {
+      const contactStatusMap = { 'Reuniao marcada': 'Reuni\u00e3o marcada' };
+      const contact = {
+        id: uid(),
+        name: args.name,
+        type: args.type || 'Lead',
+        company: args.company || '',
+        contact: args.contact || '',
+        status: contactStatusMap[args.status] || args.status || 'Novo',
+        nextStep: args.next_step || '',
+        notes: args.notes || '',
+        owner_id: currentUserId,
+        owner_name: currentUserName
+      };
+      S.contacts.unshift(contact);
+      saveContacts();
+      renderCRM();
+      return { success: true, contact };
+    }
+
+    case 'list_docs':
+      return S.docs.map(d => ({ id: d.id, title: d.title, category: d.category, project: d.project, date: d.date, preview: (d.content || '').slice(0, 220) }));
+
+    case 'create_doc': {
+      const categoryMap = { Estrategia: 'Estrat\u00e9gia', Anotacao: 'Anota\u00e7\u00e3o' };
+      const doc = {
+        id: uid(),
+        title: args.title,
+        category: categoryMap[args.category] || args.category || 'Anota\u00e7\u00e3o',
+        content: args.content,
+        project: args.project || '',
+        date: args.date || today,
+        owner_id: currentUserId,
+        owner_name: currentUserName
+      };
+      S.docs.unshift(doc);
+      saveDocs();
+      renderPrompts();
+      return { success: true, doc: { id: doc.id, title: doc.title, category: doc.category } };
+    }
+
     case 'add_transaction': {
       const tx = { id: uid(), type: args.type, desc: args.desc, value: args.value, project: args.project||'', date: args.date||today };
       S.transactions.push(tx);
@@ -2821,6 +3012,22 @@ function jarvisRunTool(name, args) {
       renderFinancial();
       return { success: true, transaction: tx };
     }
+
+    case 'list_transactions': {
+      const limit = Math.min(Math.max(+args.limit || 10, 1), 30);
+      return [...S.transactions]
+        .sort((a,b) => (b.date || '').localeCompare(a.date || ''))
+        .slice(0, limit)
+        .map(t => ({ id: t.id, type: t.type, desc: t.desc, value: t.value, project: t.project, date: t.date }));
+    }
+
+    case 'open_code_assets':
+      window.location.href = 'assets.html';
+      return { success: true, target: 'assets.html' };
+
+    case 'show_choices':
+      jarvisAppendChoices(args.title, args.description || '', args.options || []);
+      return { success: true, rendered: true };
 
     case 'list_notes': {
       const folders = S.notes.filter(n => n.type === 'folder').map(f => ({
@@ -2879,7 +3086,13 @@ Use as ferramentas disponíveis sempre que o usuário pedir para criar, mover, a
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
     body: JSON.stringify({
       model: JARVIS_MODEL,
-      messages: [{ role: 'system', content: systemPrompt }, ...messages],
+      messages: [{
+        role: 'system',
+        content: `${systemPrompt}
+
+Secao atual do usuario no Hub: ${sectionMeta[S.section]?.label || S.section}.
+Use show_choices quando houver varios caminhos bons, quando faltar uma decisao importante, ou quando o usuario pedir um plano. As opcoes devem ser curtas, acionaveis e em portugues brasileiro.`
+      }, ...messages],
       tools: JARVIS_TOOLS,
       tool_choice: 'auto',
       parallel_tool_calls: false,
@@ -2914,8 +3127,8 @@ async function jarvisCallGroqNoTools(messages) {
   return data.choices[0];
 }
 
-async function jarvisSend() {
-  const input = document.getElementById('jarvisInput');
+async function jarvisSend(source = 'panel') {
+  const input = document.getElementById(source === 'page' ? 'jarvisPageInput' : 'jarvisInput');
   const text  = input?.value?.trim();
   if (!text || jarvisBusy) return;
 
@@ -2968,23 +3181,71 @@ async function jarvisSend() {
 }
 
 function jarvisAppendMsg(role, content) {
-  const list = document.getElementById('jarvisMsgList');
-  if (!list) return;
-  const div = document.createElement('div');
-  div.className = `jarvis-msg jarvis-msg-${role}`;
-  if (role === 'user') {
-    div.innerHTML = `<div class="jarvis-bubble">${jarvisEsc(content)}</div>`;
-  } else if (role === 'assistant') {
-    div.innerHTML = `<div class="jarvis-avatar-sm"><i class='bx bx-bot'></i></div><div class="jarvis-bubble">${jarvisMd(content)}</div>`;
-  } else {
-    div.innerHTML = `<div class="jarvis-bubble"><i class='bx bx-error-circle'></i> ${jarvisEsc(content)}</div>`;
-  }
-  list.appendChild(div);
-  list.scrollTop = list.scrollHeight;
+  ['jarvisMsgList', 'jarvisPageMsgList'].forEach(listId => {
+    const list = document.getElementById(listId);
+    if (!list) return;
+    const div = document.createElement('div');
+    div.className = `jarvis-msg jarvis-msg-${role}`;
+    if (role === 'user') {
+      div.innerHTML = `<div class="jarvis-bubble">${jarvisEsc(content)}</div>`;
+    } else if (role === 'assistant') {
+      div.innerHTML = `<div class="jarvis-avatar-sm"><i class='bx bx-bot'></i></div><div class="jarvis-bubble">${jarvisMd(content)}</div>`;
+    } else {
+      div.innerHTML = `<div class="jarvis-bubble"><i class='bx bx-error-circle'></i> ${jarvisEsc(content)}</div>`;
+    }
+    list.appendChild(div);
+    list.scrollTop = list.scrollHeight;
+  });
+}
+
+function jarvisAppendChoices(title, description, options) {
+  const validOptions = (options || []).filter(opt => opt?.label && opt?.prompt).slice(0, 4);
+  if (!validOptions.length) return;
+
+  ['jarvisMsgList', 'jarvisPageMsgList'].forEach(listId => {
+    const list = document.getElementById(listId);
+    if (!list) return;
+
+    const div = document.createElement('div');
+    div.className = 'jarvis-msg jarvis-msg-assistant';
+    div.innerHTML = `
+      <div class="jarvis-avatar-sm"><i class='bx bx-bot'></i></div>
+      <div class="jarvis-bubble jarvis-choice-card">
+        <div class="jarvis-choice-title">${jarvisEsc(title || 'Escolha um caminho')}</div>
+        ${description ? `<div class="jarvis-choice-desc">${jarvisEsc(description)}</div>` : ''}
+        <div class="jarvis-choice-list">
+          ${validOptions.map(opt => `
+            <button class="jarvis-choice-btn" type="button" data-prompt="${jarvisAttr(opt.prompt)}">
+              ${jarvisEsc(opt.label)}
+            </button>
+          `).join('')}
+        </div>
+      </div>`;
+    list.appendChild(div);
+    list.scrollTop = list.scrollHeight;
+  });
+}
+
+function jarvisRenderHistory() {
+  ['jarvisMsgList', 'jarvisPageMsgList'].forEach(id => {
+    const list = document.getElementById(id);
+    if (list) list.innerHTML = '';
+  });
+  jarvisMessages
+    .filter(msg => msg.role === 'user' || msg.role === 'assistant')
+    .forEach(msg => jarvisAppendMsg(msg.role, msg.content || ''));
 }
 
 function jarvisEsc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\n/g,'<br>');
+}
+
+function jarvisAttr(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
 }
 
 function jarvisMd(s) {
@@ -2996,10 +3257,15 @@ function jarvisMd(s) {
 function jarvisSetBusy(on) {
   jarvisBusy = on;
   const typing = document.getElementById('jarvisTyping');
+  const pageTyping = document.getElementById('jarvisPageTyping');
   const btn    = document.getElementById('jarvisSend');
+  const pageBtn = document.getElementById('jarvisPageSend');
   if (typing) typing.style.display = on ? 'flex' : 'none';
+  if (pageTyping) pageTyping.style.display = on ? 'flex' : 'none';
   if (btn)    btn.disabled = on;
+  if (pageBtn) pageBtn.disabled = on;
   if (!on) document.getElementById('jarvisMsgList')?.scrollTo(0, 999999);
+  if (!on) document.getElementById('jarvisPageMsgList')?.scrollTo(0, 999999);
 }
 
 function jarvisPromptKey() {
@@ -3008,6 +3274,19 @@ function jarvisPromptKey() {
     localStorage.setItem(JARVIS_KEY_STORE, key.trim());
     toast('Chave Groq salva!', 'success');
   }
+}
+
+function jarvisGreet() {
+  if (jarvisGreeted) return;
+  jarvisGreeted = true;
+  jarvisAppendMsg('assistant', `OlÃ¡, **Vitor**! Sou o **Jarvis**, seu assistente no Motion Hub.\n\nPosso criar tarefas, mover cards no kanban, marcar hÃ¡bitos, registrar ideias e muito mais â€” Ã© sÃ³ pedir!`);
+}
+
+function renderJarvisPage() {
+  jarvisRenderHistory();
+  if (!jarvisMessages.some(msg => msg.role === 'user' || msg.role === 'assistant')) jarvisGreeted = false;
+  jarvisGreet();
+  setTimeout(() => document.getElementById('jarvisPageInput')?.focus(), 80);
 }
 
 function jarvisToggle() {
@@ -3041,12 +3320,47 @@ function initJarvis() {
   document.getElementById('jarvisClear')?.addEventListener('click', () => {
     jarvisMessages = [];
     jarvisGreeted  = false;
-    const list = document.getElementById('jarvisMsgList');
-    if (list) list.innerHTML = '';
+    jarvisRenderHistory();
     jarvisAppendMsg('assistant', 'Conversa limpa. Como posso ajudar?');
     jarvisGreeted = true;
   });
   document.getElementById('jarvisKeyBtn')?.addEventListener('click', jarvisPromptKey);
+  document.getElementById('jarvisPageSend')?.addEventListener('click', () => jarvisSend('page'));
+  document.getElementById('jarvisPageInput')?.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); jarvisSend('page'); }
+  });
+  document.getElementById('jarvisPageInput')?.addEventListener('input', function () {
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 150) + 'px';
+  });
+  document.getElementById('jarvisPageClear')?.addEventListener('click', () => {
+    jarvisMessages = [];
+    jarvisGreeted = false;
+    jarvisRenderHistory();
+    jarvisAppendMsg('assistant', 'Conversa limpa. Como posso ajudar?');
+    jarvisGreeted = true;
+  });
+  document.getElementById('jarvisPageKey')?.addEventListener('click', jarvisPromptKey);
+  document.querySelectorAll('.jarvis-prompt').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const input = document.getElementById('jarvisPageInput');
+      if (!input) return;
+      input.value = btn.dataset.prompt || '';
+      input.focus();
+    });
+  });
+  document.addEventListener('click', e => {
+    const choiceBtn = e.target.closest('.jarvis-choice-btn');
+    if (!choiceBtn) return;
+    const usePage = S.section === 'jarvis' && document.getElementById('jarvisPageInput');
+    const input = document.getElementById(usePage ? 'jarvisPageInput' : 'jarvisInput');
+    if (!usePage && !jarvisOpen) jarvisToggle();
+    if (!input) return;
+    input.value = choiceBtn.dataset.prompt || '';
+    input.focus();
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, usePage ? 150 : 110) + 'px';
+  });
   document.addEventListener('click', e => {
     if (!jarvisOpen) return;
     const panel = document.getElementById('jarvisPanel');

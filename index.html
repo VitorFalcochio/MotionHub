@@ -79,6 +79,9 @@
       <a class="nav-item" data-section="agenda">
         <i class='bx bx-calendar'></i><span>Agenda</span>
       </a>
+      <a class="nav-item" data-section="jarvis">
+        <i class='bx bx-bot'></i><span>Jarvis</span>
+      </a>
       <div class="nav-divider"></div>
       <div class="nav-label">Estratégia</div>
       <a class="nav-item" data-section="ideas">
@@ -405,6 +408,52 @@
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <!-- ==================== JARVIS ==================== -->
+      <section class="page" id="section-jarvis">
+        <div class="jarvis-page">
+          <div class="jarvis-page-main">
+            <div class="jarvis-page-head">
+              <div class="jarvis-orb"><i class='bx bx-bot'></i></div>
+              <div>
+                <h1>Jarvis</h1>
+                <p>Assistente operacional do Motion Hub para tarefas, projetos, ideias, metas e execucao.</p>
+              </div>
+              <div class="jarvis-page-actions">
+                <button class="btn-ghost" id="jarvisPageClear"><i class='bx bx-trash'></i> Limpar</button>
+                <button class="btn-primary" id="jarvisPageKey"><i class='bx bx-key'></i> Chave Groq</button>
+              </div>
+            </div>
+
+            <div class="jarvis-page-chat">
+              <div class="jarvis-msgs jarvis-msgs-page" id="jarvisPageMsgList"></div>
+              <div class="jarvis-typing jarvis-typing-page" id="jarvisPageTyping" style="display:none">
+                <div class="jarvis-avatar-sm"><i class='bx bx-bot'></i></div>
+                <div class="typing-dots"><span></span><span></span><span></span></div>
+              </div>
+              <div class="jarvis-input-area jarvis-input-area-page">
+                <textarea class="jarvis-input" id="jarvisPageInput" placeholder="Peça para o Jarvis planejar, criar tarefas, revisar seu dia..." rows="1"></textarea>
+                <button class="jarvis-send" id="jarvisPageSend"><i class='bx bx-send'></i></button>
+              </div>
+            </div>
+          </div>
+
+          <aside class="jarvis-page-side">
+            <div class="jarvis-side-card">
+              <h3>Comandos rapidos</h3>
+              <button class="jarvis-prompt" data-prompt="Entre em modo plano: me mostre opcoes clicaveis antes de executar qualquer acao para esta ideia."><i class='bx bx-git-branch'></i> Modo plano</button>
+              <button class="jarvis-prompt" data-prompt="Resuma meu Motion Hub hoje e me diga as 3 prioridades."><i class='bx bx-list-check'></i> Resumo do dia</button>
+              <button class="jarvis-prompt" data-prompt="Crie uma tarefa de alta prioridade para revisar a biblioteca Code Assets hoje."><i class='bx bx-plus-circle'></i> Criar tarefa</button>
+              <button class="jarvis-prompt" data-prompt="Analise minhas metas e sugira o proximo passo mais importante."><i class='bx bx-target-lock'></i> Proximo passo</button>
+              <button class="jarvis-prompt" data-prompt="Me ajude a transformar uma ideia em plano de execucao."><i class='bx bx-bulb'></i> Plano de ideia</button>
+            </div>
+            <div class="jarvis-side-card">
+              <h3>Contexto conectado</h3>
+              <p>O Jarvis consegue consultar resumo, tarefas, projetos, habitos, metas, financeiro e navegar por secoes do Hub.</p>
+            </div>
+          </aside>
         </div>
       </section>
 
