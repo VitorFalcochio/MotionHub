@@ -50,6 +50,13 @@ const server = createServer(async (req, res) => {
       return sendJson(res, 200, await loadData());
     }
 
+    if (url.pathname === '/api/web-search') {
+      if (req.method !== 'POST') return sendJson(res, 405, { error: 'Method not allowed' });
+      const args = await readJson(req);
+      const result = await webSearch(args || {});
+      return sendJson(res, result?.success === false ? 400 : 200, result);
+    }
+
     if (req.method === 'GET') {
       return serveStatic(url.pathname, res);
     }
@@ -72,6 +79,98 @@ async function readJson(req) {
   for await (const chunk of req) chunks.push(chunk);
   const raw = Buffer.concat(chunks).toString('utf8').trim();
   return raw ? JSON.parse(raw) : {};
+}
+
+async function webSearch(args) {
+  const query = String(args.query || '').trim().slice(0, 400);
+  const maxResults = Math.min(Math.max(Number(args.max_results || args.maxResults || 6), 3), 8);
+  const searchDepth = args.search_depth === 'advanced' || args.searchDepth === 'advanced' ? 'advanced' : 'basic';
+
+  if (!query) {
+    return { success: false, error: 'Informe uma busca em query.' };
+  }
+
+  if (process.env.TAVILY_API_KEY) {
+    return searchWithTavily({ query, maxResults, searchDepth });
+  }
+
+  if (process.env.BRAVE_SEARCH_API_KEY) {
+    return searchWithBrave({ query, maxResults });
+  }
+
+  return {
+    success: false,
+    error: 'Pesquisa web nao configurada. Adicione TAVILY_API_KEY ou BRAVE_SEARCH_API_KEY no .env e reinicie o servidor.'
+  };
+}
+
+async function searchWithTavily({ query, maxResults, searchDepth }) {
+  const response = await fetch('https://api.tavily.com/search', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${process.env.TAVILY_API_KEY}`
+    },
+    body: JSON.stringify({
+      query,
+      search_depth: searchDepth,
+      max_results: maxResults,
+      include_answer: true,
+      include_raw_content: false
+    })
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    return { success: false, error: data.error || data.detail || `Tavily HTTP ${response.status}` };
+  }
+
+  return {
+    success: true,
+    provider: 'tavily',
+    query,
+    answer: data.answer || '',
+    results: (data.results || []).slice(0, maxResults).map(item => ({
+      title: item.title || item.url,
+      url: item.url,
+      snippet: item.content || '',
+      published_date: item.published_date || '',
+      score: item.score
+    }))
+  };
+}
+
+async function searchWithBrave({ query, maxResults }) {
+  const params = new URLSearchParams({
+    q: query,
+    count: String(maxResults),
+    safesearch: 'moderate'
+  });
+  const response = await fetch(`https://api.search.brave.com/res/v1/web/search?${params}`, {
+    headers: {
+      'Accept': 'application/json',
+      'X-Subscription-Token': process.env.BRAVE_SEARCH_API_KEY
+    }
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    return { success: false, error: data.error?.message || `Brave HTTP ${response.status}` };
+  }
+
+  return {
+    success: true,
+    provider: 'brave',
+    query,
+    answer: '',
+    results: (data.web?.results || []).slice(0, maxResults).map(item => ({
+      title: item.title || item.url,
+      url: item.url,
+      snippet: item.description || '',
+      published_date: item.age || '',
+      score: null
+    }))
+  };
 }
 
 function sendJson(res, status, data) {
