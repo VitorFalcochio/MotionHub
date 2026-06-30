@@ -24,9 +24,12 @@ const S = {
 };
 let _krCounter = 0;
 let _selectedMood = 3;
+let projectRhythmInterval = null;
+let projectRhythmAlertOpen = false;
 
 /* ===== LOCAL STORAGE ===== */
 const STORAGE_KEY = 'motion_hub_data_v1';
+const PROJECT_RHYTHM_KEY = 'motion_project_rhythm_v1';
 const ACCESS_PASSWORD = '@Vitor0911071234';
 const ACCESS_SESSION_KEY = 'motion_hub_access_ok_v1';
 const DATA_FIELDS = ['projects', 'tasks', 'ideas', 'contacts', 'transactions', 'docs', 'habits', 'goals', 'reviews', 'notes'];
@@ -250,7 +253,17 @@ const sectionMeta = {
   notes:      { label: 'Notas',             btnLabel: null }
 };
 
-function navigateTo(section) {
+const sectionOrder = ['dashboard', 'projects', 'tasks', 'habits', 'agenda', 'jarvis', 'ideas', 'goals', 'crm', 'financial', 'review', 'prompts', 'notes'];
+
+function navigateTo(section, direction = null) {
+  const contentArea = document.querySelector('.content-area');
+  if (direction && contentArea) {
+    contentArea.classList.remove('nav-slide-left', 'nav-slide-right');
+    void contentArea.offsetWidth;
+    contentArea.classList.add(direction === 'next' ? 'nav-slide-left' : 'nav-slide-right');
+    window.setTimeout(() => contentArea.classList.remove('nav-slide-left', 'nav-slide-right'), 420);
+  }
+
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   const page = document.getElementById('section-' + section);
@@ -270,6 +283,14 @@ function navigateTo(section) {
   }
   renderSection(section);
   updateNotifBadge();
+}
+
+function navigateByShortcut(direction) {
+  const currentIndex = sectionOrder.indexOf(S.section);
+  if (currentIndex === -1) return;
+  const offset = direction === 'next' ? 1 : -1;
+  const nextIndex = (currentIndex + offset + sectionOrder.length) % sectionOrder.length;
+  navigateTo(sectionOrder[nextIndex], direction);
 }
 
 function renderSection(section) {
@@ -302,12 +323,15 @@ function toast(msg, type = 'success') {
 function openModal(title, bodyHTML, onSave) {
   document.getElementById('modalTitle').textContent = title;
   document.getElementById('modalBody').innerHTML = bodyHTML;
+  document.getElementById('modalCancel').textContent = 'Cancelar';
+  document.getElementById('modalSave').innerHTML = 'Salvar';
   document.getElementById('modalOverlay').classList.add('open');
   S.modalSave = onSave;
 }
 function closeModal() {
   document.getElementById('modalOverlay').classList.remove('open');
   S.modalSave = null;
+  projectRhythmAlertOpen = false;
 }
 
 /* ===== CONFIRM ===== */
@@ -359,6 +383,343 @@ function projDot(status) {
   return c[status] || '#545D70';
 }
 function getProjectNames() { return S.projects.map(p => p.name); }
+
+/* ===== PROJECT RHYTHM ===== */
+function rhythmProjectArg(name) {
+  return String(name || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+}
+
+function defaultProjectRhythm() {
+  const activeNames = S.projects.filter(p => p.status !== 'Pausado').map(p => p.name);
+  return {
+    activeProject: activeNames[0] || '',
+    timer: {
+      project: activeNames[0] || '',
+      durationMin: 45,
+      remainingSec: 45 * 60,
+      running: false,
+      endsAt: null,
+      startedAt: null,
+      notified: false
+    },
+    sessions: [],
+    plans: activeNames.map((name, index) => ({
+      project: name,
+      start: `${String(9 + index).padStart(2, '0')}:00`,
+      minutes: index === 0 ? 60 : 45,
+      enabled: true
+    }))
+  };
+}
+
+function getProjectRhythm() {
+  const stored = readStore(PROJECT_RHYTHM_KEY, null);
+  const rhythm = stored || defaultProjectRhythm();
+  const projectNames = getProjectNames();
+  const existingPlans = Array.isArray(rhythm.plans) ? rhythm.plans : [];
+  rhythm.plans = projectNames.map((name, index) => {
+    const found = existingPlans.find(p => p.project === name);
+    return found || {
+      project: name,
+      start: `${String(9 + index).padStart(2, '0')}:00`,
+      minutes: index === 0 ? 60 : 45,
+      enabled: true
+    };
+  });
+  if (!rhythm.activeProject || !projectNames.includes(rhythm.activeProject)) rhythm.activeProject = rhythm.plans[0]?.project || '';
+  if (!rhythm.timer) rhythm.timer = defaultProjectRhythm().timer;
+  if (!rhythm.timer.project || !projectNames.includes(rhythm.timer.project)) rhythm.timer.project = rhythm.activeProject;
+  if (!Array.isArray(rhythm.sessions)) rhythm.sessions = [];
+  return rhythm;
+}
+
+function saveProjectRhythm(rhythm) {
+  writeStore(PROJECT_RHYTHM_KEY, rhythm);
+}
+
+function todayKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function recordProjectTime(rhythm, project, seconds, reason = 'manual') {
+  const safeSeconds = Math.floor(Number(seconds || 0));
+  if (!project || safeSeconds < 60) return;
+  rhythm.sessions = Array.isArray(rhythm.sessions) ? rhythm.sessions : [];
+  rhythm.sessions.push({
+    id: uid(),
+    project,
+    seconds: safeSeconds,
+    minutes: Math.round(safeSeconds / 60),
+    reason,
+    date: todayKey(),
+    endedAt: new Date().toISOString()
+  });
+  rhythm.sessions = rhythm.sessions.slice(-250);
+}
+
+function recordRunningTimerIfNeeded(rhythm, reason = 'manual') {
+  const timer = rhythm.timer;
+  if (!timer?.running || !timer.endsAt || timer.logged) return;
+  const durationSec = Math.max(1, Number(timer.durationMin || 45) * 60);
+  const remainingSec = Math.max(0, Math.ceil((timer.endsAt - Date.now()) / 1000));
+  const elapsedSec = Math.max(0, durationSec - remainingSec);
+  recordProjectTime(rhythm, timer.project, elapsedSec, reason);
+  timer.logged = true;
+}
+
+function getProjectTimeSummary(rhythm) {
+  const today = todayKey();
+  const sessions = (rhythm.sessions || []).filter(s => s.date === today);
+  const byProject = {};
+  sessions.forEach(s => {
+    byProject[s.project] = (byProject[s.project] || 0) + Number(s.seconds || 0);
+  });
+  const totalSec = Object.values(byProject).reduce((sum, sec) => sum + sec, 0);
+  return { sessions, byProject, totalSec };
+}
+
+function formatWorkTime(seconds) {
+  const min = Math.round(Number(seconds || 0) / 60);
+  if (min < 60) return `${min}min`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m ? `${h}h${String(m).padStart(2, '0')}` : `${h}h`;
+}
+
+function formatTimer(sec) {
+  const safe = Math.max(0, Math.floor(sec || 0));
+  const m = Math.floor(safe / 60);
+  const s = safe % 60;
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function getSuggestedPlan(rhythm) {
+  const enabled = rhythm.plans.filter(p => p.enabled);
+  if (!enabled.length) return rhythm.plans[0] || null;
+  const now = new Date();
+  const current = now.getHours() * 60 + now.getMinutes();
+  const upcoming = enabled
+    .map(p => {
+      const [h, m] = String(p.start || '09:00').split(':').map(Number);
+      return { ...p, sortMin: (h || 0) * 60 + (m || 0) };
+    })
+    .sort((a, b) => a.sortMin - b.sortMin);
+  return upcoming.find(p => p.sortMin >= current) || upcoming[0];
+}
+
+function startProjectTimer(projectName, minutes) {
+  const rhythm = getProjectRhythm();
+  recordRunningTimerIfNeeded(rhythm, 'troca');
+  const plan = rhythm.plans.find(p => p.project === projectName) || getSuggestedPlan(rhythm);
+  const durationMin = Math.max(5, Math.min(240, Number(minutes || plan?.minutes || 45)));
+  rhythm.activeProject = projectName || plan?.project || rhythm.activeProject;
+  rhythm.timer = {
+    project: rhythm.activeProject,
+    durationMin,
+    remainingSec: durationMin * 60,
+    running: true,
+    endsAt: Date.now() + durationMin * 60 * 1000,
+    startedAt: Date.now(),
+    notified: false,
+    logged: false
+  };
+  saveProjectRhythm(rhythm);
+  renderProjectRhythm();
+}
+
+function pauseProjectTimer() {
+  const rhythm = getProjectRhythm();
+  const timer = rhythm.timer;
+  if (!timer?.project) return;
+  if (timer.running) {
+    timer.remainingSec = Math.max(0, Math.ceil((timer.endsAt - Date.now()) / 1000));
+    timer.running = false;
+    timer.endsAt = null;
+  } else {
+    timer.running = true;
+    timer.endsAt = Date.now() + Math.max(1, timer.remainingSec || timer.durationMin * 60) * 1000;
+  }
+  saveProjectRhythm(rhythm);
+  renderProjectRhythm();
+}
+
+function resetProjectTimer() {
+  const rhythm = getProjectRhythm();
+  recordRunningTimerIfNeeded(rhythm, 'reset');
+  const plan = rhythm.plans.find(p => p.project === rhythm.timer?.project) || getSuggestedPlan(rhythm);
+  rhythm.timer = {
+    project: plan?.project || rhythm.activeProject || '',
+    durationMin: Number(plan?.minutes || 45),
+    remainingSec: Number(plan?.minutes || 45) * 60,
+    running: false,
+    endsAt: null,
+    startedAt: null,
+    notified: false,
+    logged: false
+  };
+  rhythm.activeProject = rhythm.timer.project;
+  saveProjectRhythm(rhythm);
+  renderProjectRhythm();
+}
+
+function nextProjectTimer() {
+  const rhythm = getProjectRhythm();
+  const enabled = rhythm.plans.filter(p => p.enabled);
+  if (!enabled.length) return;
+  const current = enabled.findIndex(p => p.project === rhythm.timer?.project || p.project === rhythm.activeProject);
+  const next = enabled[(current + 1 + enabled.length) % enabled.length];
+  startProjectTimer(next.project, next.minutes);
+}
+
+function updateProjectPlan(projectName, field, value) {
+  const rhythm = getProjectRhythm();
+  const plan = rhythm.plans.find(p => p.project === projectName);
+  if (!plan) return;
+  if (field === 'enabled') plan.enabled = Boolean(value);
+  if (field === 'start') plan.start = value || '09:00';
+  if (field === 'minutes') plan.minutes = Math.max(5, Math.min(240, Number(value || 45)));
+  saveProjectRhythm(rhythm);
+  renderProjectRhythm();
+}
+
+function addTenMinutesToCurrentBlock() {
+  const rhythm = getProjectRhythm();
+  const timer = rhythm.timer;
+  if (!timer?.project) return;
+  timer.durationMin = Number(timer.durationMin || 45) + 10;
+  timer.remainingSec = Math.max(0, Number(timer.remainingSec || 0)) + 10 * 60;
+  timer.running = true;
+  timer.endsAt = Date.now() + timer.remainingSec * 1000;
+  timer.notified = false;
+  timer.logged = false;
+  saveProjectRhythm(rhythm);
+  projectRhythmAlertOpen = false;
+  closeModal();
+  renderProjectRhythm();
+}
+
+function openProjectSwitchAlert(finishedProject) {
+  if (projectRhythmAlertOpen) return;
+  const rhythm = getProjectRhythm();
+  const enabled = rhythm.plans.filter(p => p.enabled);
+  const current = enabled.findIndex(p => p.project === finishedProject);
+  const next = enabled[(current + 1 + enabled.length) % enabled.length] || getSuggestedPlan(rhythm);
+  projectRhythmAlertOpen = true;
+  openModal('Bloco finalizado', `
+    <div class="rhythm-alert">
+      <div class="rhythm-alert-icon"><i class='bx bx-bell-ring'></i></div>
+      <div>
+        <h4>${escHtml(finishedProject || 'Projeto')} concluido por agora</h4>
+        <p>Voce registrou este bloco no historico de foco. Minha sugestao: girar para <strong>${escHtml(next?.project || 'o proximo projeto')}</strong> para manter a rotacao viva.</p>
+      </div>
+      <div class="rhythm-alert-actions">
+        <button class="btn-ghost" type="button" onclick="addTenMinutesToCurrentBlock()"><i class='bx bx-plus'></i> Mais 10 min</button>
+      </div>
+    </div>
+  `, () => {
+    projectRhythmAlertOpen = false;
+    if (next) startProjectTimer(next.project, next.minutes);
+  });
+  const saveBtn = document.getElementById('modalSave');
+  if (saveBtn) saveBtn.innerHTML = `<i class='bx bx-skip-next'></i> Ir para proximo`;
+  const cancelBtn = document.getElementById('modalCancel');
+  if (cancelBtn) cancelBtn.textContent = 'Ficar parado';
+}
+
+function renderProjectRhythm() {
+  const el = document.getElementById('projectRhythm');
+  if (!el) return;
+  const rhythm = getProjectRhythm();
+  const timer = rhythm.timer || {};
+  if (timer.running && timer.endsAt) {
+    timer.remainingSec = Math.max(0, Math.ceil((timer.endsAt - Date.now()) / 1000));
+    if (timer.remainingSec <= 0) {
+      timer.running = false;
+      timer.endsAt = null;
+      timer.remainingSec = 0;
+      if (!timer.logged) {
+        recordProjectTime(rhythm, timer.project, Number(timer.durationMin || 45) * 60, 'concluido');
+        timer.logged = true;
+      }
+      if (!timer.notified) {
+        timer.notified = true;
+        toast(`Bloco de ${timer.project || 'projeto'} finalizado. Hora de trocar o foco.`, 'info');
+        openProjectSwitchAlert(timer.project);
+      }
+    }
+    saveProjectRhythm(rhythm);
+  }
+  const suggested = getSuggestedPlan(rhythm);
+  const activePlan = rhythm.plans.find(p => p.project === timer.project) || suggested;
+  const durationSec = Math.max(1, Number(timer.durationMin || activePlan?.minutes || 45) * 60);
+  const remainingSec = timer.remainingSec ?? durationSec;
+  const progress = Math.max(0, Math.min(100, 100 - (remainingSec / durationSec) * 100));
+  const summary = getProjectTimeSummary(rhythm);
+
+  if (!rhythm.plans.length) {
+    el.innerHTML = `
+      <div class="rhythm-empty">
+        <i class='bx bx-time-five'></i>
+        <div>
+          <strong>Ritmo dos Projetos</strong>
+          <span>Crie projetos para montar blocos de foco e evitar ficar preso em uma unica coisa.</span>
+        </div>
+      </div>`;
+    return;
+  }
+
+  el.innerHTML = `
+    <div class="rhythm-main">
+      <div class="rhythm-head">
+        <div>
+          <span class="rhythm-kicker">Ritmo dos Projetos</span>
+          <h3>${escHtml(timer.project || suggested?.project || 'Escolha um projeto')}</h3>
+          <p>${timer.running ? 'Bloco em andamento' : 'Pronto para iniciar o proximo bloco'} Â· ${activePlan?.start || '--:--'} Â· ${activePlan?.minutes || 45} min Â· Hoje: ${formatWorkTime(summary.totalSec)}</p>
+        </div>
+        <div class="rhythm-clock">
+          <div class="rhythm-ring" style="--timer-progress:${progress}%">
+            <span>${formatTimer(remainingSec)}</span>
+          </div>
+        </div>
+      </div>
+      <div class="rhythm-today">
+        ${Object.entries(summary.byProject).length
+          ? Object.entries(summary.byProject)
+              .sort((a, b) => b[1] - a[1])
+              .slice(0, 4)
+              .map(([project, sec]) => `<span><strong>${escHtml(project)}</strong>${formatWorkTime(sec)}</span>`)
+              .join('')
+          : '<span><strong>Hoje</strong>0min registrados</span>'}
+      </div>
+      <div class="rhythm-controls">
+        <button class="btn-primary" type="button" onclick="startProjectTimer('${rhythmProjectArg(timer.project || suggested?.project || '')}', ${activePlan?.minutes || 45})">
+          <i class='bx bx-play'></i><span>Iniciar</span>
+        </button>
+        <button class="btn-ghost" type="button" onclick="pauseProjectTimer()">
+          <i class='bx ${timer.running ? 'bx-pause' : 'bx-play-circle'}'></i><span>${timer.running ? 'Pausar' : 'Retomar'}</span>
+        </button>
+        <button class="btn-ghost" type="button" onclick="nextProjectTimer()">
+          <i class='bx bx-skip-next'></i><span>Proximo</span>
+        </button>
+        <button class="btn-icon" type="button" onclick="resetProjectTimer()" title="Resetar timer"><i class='bx bx-reset'></i></button>
+      </div>
+    </div>
+    <div class="rhythm-plan-list">
+      ${rhythm.plans.map(plan => `
+        <div class="rhythm-plan ${plan.project === timer.project ? 'active' : ''}">
+          <label class="rhythm-toggle">
+            <input type="checkbox" ${plan.enabled ? 'checked' : ''} onchange="updateProjectPlan('${rhythmProjectArg(plan.project)}', 'enabled', this.checked)">
+            <span></span>
+          </label>
+          <div class="rhythm-plan-name">${escHtml(plan.project)}<span>${formatWorkTime(summary.byProject[plan.project] || 0)} hoje</span></div>
+          <input class="rhythm-input time" type="time" value="${escHtml(plan.start || '09:00')}" onchange="updateProjectPlan('${rhythmProjectArg(plan.project)}', 'start', this.value)">
+          <input class="rhythm-input mins" type="number" min="5" max="240" step="5" value="${Number(plan.minutes || 45)}" onchange="updateProjectPlan('${rhythmProjectArg(plan.project)}', 'minutes', this.value)">
+          <button class="btn-icon" type="button" onclick="startProjectTimer('${rhythmProjectArg(plan.project)}', ${Number(plan.minutes || 45)})" title="Iniciar bloco"><i class='bx bx-play'></i></button>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
 
 /* ===== DASHBOARD ===== */
 function renderDashboard() {
@@ -459,6 +820,8 @@ function renderDashboard() {
       <div class="step-bullet"></div>
       <div class="step-text">${s}</div>
     </div>`).join('');
+
+  renderProjectRhythm();
 }
 
 /* ===== PROJECTS ===== */
@@ -1879,9 +2242,29 @@ function bindEvents() {
     if (e.target === document.getElementById('confirmOverlay')) closeConfirm();
   });
 
-  // Escape key
+  // Global keyboard shortcuts
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') { closeModal(); closeConfirm(); }
+    const isTyping = e.target?.matches?.('input, textarea, select, [contenteditable="true"]');
+    const hasOverlayOpen = document.getElementById('modalOverlay')?.classList.contains('open') ||
+      document.getElementById('confirmOverlay')?.classList.contains('open');
+    if (isTyping || !e.ctrlKey || e.shiftKey || e.metaKey) return;
+
+    const key = e.key.toLowerCase();
+    if (key === 'b' && !e.altKey) {
+      e.preventDefault();
+      document.getElementById('sidebar')?.classList.toggle('collapsed');
+      return;
+    }
+    if (key === 'n' && e.altKey && !hasOverlayOpen) {
+      e.preventDefault();
+      primaryAction();
+      return;
+    }
+    if (!e.altKey && (e.key === 'ArrowRight' || e.key === 'ArrowLeft')) {
+      e.preventDefault();
+      navigateByShortcut(e.key === 'ArrowRight' ? 'next' : 'prev');
+    }
   });
 
   // Project filters
@@ -1985,6 +2368,11 @@ async function startApp() {
   bindEvents();
   initJarvis();
   initNotes();
+  if (!projectRhythmInterval) {
+    projectRhythmInterval = setInterval(() => {
+      if (S.section === 'dashboard') renderProjectRhythm();
+    }, 1000);
+  }
   navigateTo('dashboard');
   setTimeout(() => {
     const loader = document.getElementById('loaderScreen');
@@ -2825,6 +3213,22 @@ const JARVIS_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'web_search',
+      description: 'Pesquisa a web em tempo real para temas atuais, validacao de ideias, mercado, concorrentes, tendencias, noticias, ferramentas, dados recentes ou qualquer pergunta que precise de fontes externas atuais. Retorna resultados com links.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Consulta objetiva para pesquisar na web.' },
+          max_results: { type: 'number', minimum: 3, maximum: 8 },
+          search_depth: { type: 'string', enum: ['basic','advanced'], description: 'Use advanced para validacao de negocio, concorrentes ou pesquisa mais profunda.' }
+        },
+        required: ['query']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'open_code_assets',
       description: 'Abre a biblioteca Code Assets do Motion Hub em assets.html, opcionalmente ja filtrada por busca, categoria ou asset.',
       parameters: {
@@ -2994,7 +3398,7 @@ function jarvisOpenCodeAssets(args = {}) {
   return { success: true, target: 'assets.html', ...request };
 }
 
-function jarvisRunTool(name, args) {
+async function jarvisRunTool(name, args) {
   const today = new Date().toISOString().slice(0, 10);
 
   switch (name) {
@@ -3192,6 +3596,9 @@ function jarvisRunTool(name, args) {
       return search;
     }
 
+    case 'web_search':
+      return jarvisWebSearch(args);
+
     case 'open_code_assets':
       return jarvisOpenCodeAssets(args);
 
@@ -3243,13 +3650,99 @@ function jarvisRunTool(name, args) {
   }
 }
 
+function jarvisBuildHubSnapshot() {
+  const activeProjects = S.projects
+    .filter(p => p.status === 'Em desenvolvimento' || p.status === 'Validação' || p.status === 'Validando')
+    .slice(0, 5)
+    .map(p => `${p.name} (${p.status}, ${p.progress || 0}%)`);
+  const priorityTasks = S.tasks
+    .filter(t => t.priority === 'Alta' && t.col !== 'done')
+    .slice(0, 6)
+    .map(t => `${t.title}${t.project ? ` - ${t.project}` : ''}`);
+  const openFollowUps = S.contacts
+    .filter(c => c.nextStep)
+    .slice(0, 5)
+    .map(c => `${c.name}: ${c.nextStep}`);
+  const income = S.transactions.filter(t => t.type === 'Receita').reduce((sum, t) => sum + (+t.value || 0), 0);
+  const expense = S.transactions.filter(t => t.type === 'Despesa').reduce((sum, t) => sum + (+t.value || 0), 0);
+  const rhythm = getProjectRhythm();
+  const timeSummary = getProjectTimeSummary(rhythm);
+  const timeByProject = Object.entries(timeSummary.byProject)
+    .sort((a, b) => b[1] - a[1])
+    .map(([project, sec]) => `${project}: ${formatWorkTime(sec)}`)
+    .join('; ');
+
+  return [
+    `Projetos: ${S.projects.length}. Ativos: ${activeProjects.join('; ') || 'nenhum'}.`,
+    `Tarefas abertas: ${S.tasks.filter(t => t.col !== 'done').length}. Prioridades: ${priorityTasks.join('; ') || 'nenhuma'}.`,
+    `Ideias: ${S.ideas.length}. CRM: ${S.contacts.length} contatos. Follow-ups: ${openFollowUps.join('; ') || 'nenhum'}.`,
+    `Financeiro: entradas ${fmtCurrency(income)}, saidas ${fmtCurrency(expense)}, saldo ${fmtCurrency(income - expense)}.`,
+    `Ritmo dos projetos hoje: ${timeByProject || 'nenhum tempo registrado'}. Projeto atual: ${rhythm.timer?.project || rhythm.activeProject || 'nenhum'}.`,
+    `Notas: ${S.notes.filter(n => n.type === 'note').length}. Secao atual: ${sectionMeta[S.section]?.label || S.section}.`
+  ].join('\n');
+}
+
+function jarvisBuildSystemPrompt() {
+  return `Voce e o Jarvis, assistente pessoal de Vitor Falcao integrado ao Motion Hub.
+
+Papel principal:
+- Seja um assistente generalista inteligente: responda duvidas sobre negocios, tecnologia, produto, marketing, vendas, financas, estudos, estrategia e temas gerais.
+- Seja tambem um parceiro estrategico de execucao: conecte respostas ao contexto real do Motion Hub quando isso ajudar.
+- Nao espere o usuario apertar um botao ou escolher um modo. Perceba a intencao pela mensagem.
+
+Quando detectar uma ideia nova de negocio, oportunidade, SaaS, produto, projeto, campanha ou validacao:
+- Atue como consultor de negocios e produto.
+- Estruture a resposta com: ideia resumida, problema/dor, publico-alvo, proposta de valor, alternativas/concorrentes, MVP, monetizacao, canais, riscos, perguntas criticas e plano de validacao.
+- Se a ideia estiver vaga, faca 2 a 4 perguntas boas ou use show_choices para caminhos possiveis.
+- Se houver informacao suficiente, entregue um plano pratico de proximos passos e sugira tarefas/projeto/nota que podem ser salvos no Hub.
+
+Quando o usuario pedir opiniao ou tiver duvida geral:
+- Responda diretamente, com clareza e raciocinio.
+- Separe fatos de inferencias quando estiver estimando.
+- Evite enrolacao. Seja util, especifico e proativo.
+
+Uso de ferramentas:
+- Use ferramentas quando o usuario pedir para criar, mover, atualizar, excluir, listar ou consultar dados do Motion Hub.
+- Use web_search quando a pergunta depender de informacao atual, mercado, concorrentes, noticias, precos, tendencias, ferramentas recentes, leis, dados externos ou validacao de uma ideia no mundo real.
+- Ao usar web_search, cite as fontes principais com links no fim da resposta e deixe claro quando algo for inferencia sua.
+- Para perguntas gerais, nao use ferramentas sem necessidade.
+- Antes de alterar dados importantes, confirme se o pedido estiver ambiguo.
+- Depois de executar uma acao, confirme brevemente o que foi feito.
+
+Hoje e ${new Date().toLocaleDateString('pt-BR', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}.
+Responda sempre em portugues brasileiro.
+
+Contexto atual do Motion Hub:
+${jarvisBuildHubSnapshot()}`;
+}
+
+async function jarvisWebSearch(args = {}) {
+  const query = String(args.query || '').trim();
+  if (!query) return { success: false, error: 'Informe uma busca em query.' };
+
+  try {
+    const res = await fetch('/api/web-search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query,
+        max_results: args.max_results || 6,
+        search_depth: args.search_depth || 'basic'
+      })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || data.success === false) {
+      return { success: false, error: data.error || `Pesquisa web HTTP ${res.status}` };
+    }
+    return data;
+  } catch (error) {
+    return { success: false, error: error.message || 'Falha ao pesquisar na web.' };
+  }
+}
+
 async function jarvisCallGroq(messages) {
   const key = localStorage.getItem(JARVIS_KEY_STORE);
-  const systemPrompt = `Você é o Jarvis, assistente pessoal de Vitor Falcão integrado ao Motion Hub — workspace para gerenciar projetos, tarefas, hábitos, metas, CRM, finanças e ideias de negócio.
-
-Hoje é ${new Date().toLocaleDateString('pt-BR', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}.
-
-Use as ferramentas disponíveis sempre que o usuário pedir para criar, mover, atualizar ou excluir dados. Responda sempre em português brasileiro. Seja conciso, direto e proativo. Ao executar ações, confirme brevemente o que foi feito.`;
+  const systemPrompt = jarvisBuildSystemPrompt();
 
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
@@ -3268,7 +3761,7 @@ Para pedidos sobre componentes, snippets, botoes, inputs, cards, loaders, animac
       tools: JARVIS_TOOLS,
       tool_choice: 'auto',
       parallel_tool_calls: false,
-      max_tokens: 1024
+      max_tokens: 1600
     })
   });
 
@@ -3288,7 +3781,7 @@ async function jarvisCallGroqNoTools(messages) {
     body: JSON.stringify({
       model: JARVIS_MODEL,
       messages,
-      max_tokens: 1024
+      max_tokens: 1600
     })
   });
   if (!res.ok) {
@@ -3315,7 +3808,7 @@ async function jarvisSend(source = 'panel') {
 
   try {
     const jarvisFallbackMsgs = () => [
-      { role: 'system', content: `Você é o Jarvis, assistente pessoal de Vitor Falcão no Motion Hub. Responda em português brasileiro.` },
+      { role: 'system', content: jarvisBuildSystemPrompt() },
       ...jarvisMessages
     ];
 
@@ -3331,7 +3824,7 @@ async function jarvisSend(source = 'panel') {
       const msg = choice.message;
       jarvisMessages.push(msg);
       for (const tc of msg.tool_calls) {
-        const result = jarvisRunTool(tc.function.name, JSON.parse(tc.function.arguments || '{}'));
+        const result = await jarvisRunTool(tc.function.name, JSON.parse(tc.function.arguments || '{}'));
         jarvisMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
       }
       try {
@@ -3451,7 +3944,7 @@ function jarvisPromptKey() {
 function jarvisGreet() {
   if (jarvisGreeted) return;
   jarvisGreeted = true;
-  jarvisAppendMsg('assistant', `OlÃ¡, **Vitor**! Sou o **Jarvis**, seu assistente no Motion Hub.\n\nPosso criar tarefas, mover cards no kanban, marcar hÃ¡bitos, registrar ideias e muito mais â€” Ã© sÃ³ pedir!`);
+  jarvisAppendMsg('assistant', 'Ola, **Vitor**! Sou o **Jarvis**, seu assistente estrategico no Motion Hub. Posso responder duvidas gerais, analisar ideias de negocio, pensar produto, growth, vendas e tambem executar acoes no seu Hub.');
 }
 
 function renderJarvisPage() {
@@ -3468,7 +3961,7 @@ function jarvisToggle() {
   if (jarvisOpen) {
     if (!jarvisGreeted) {
       jarvisGreeted = true;
-      jarvisAppendMsg('assistant', `Olá, **Vitor**! Sou o **Jarvis**, seu assistente no Motion Hub.\n\nPosso criar tarefas, mover cards no kanban, marcar hábitos, registrar ideias e muito mais — é só pedir!`);
+      jarvisAppendMsg('assistant', 'Ola, **Vitor**! Sou o **Jarvis**, seu assistente estrategico no Motion Hub. Posso responder duvidas gerais, analisar ideias de negocio, pensar produto, growth, vendas e tambem executar acoes no seu Hub.');
     }
     setTimeout(() => document.getElementById('jarvisInput')?.focus(), 120);
   }
