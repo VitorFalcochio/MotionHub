@@ -240,7 +240,7 @@ function seedNotes(existingData) {
 const sectionMeta = {
   dashboard:  { label: 'Dashboard',        btnLabel: null },
   jarvis:     { label: 'Jarvis',           btnLabel: null },
-  agenda:     { label: 'Agenda',           btnLabel: 'Nova Tarefa' },
+  agenda:     { label: 'Agenda',           btnLabel: 'Novo Evento' },
   projects:   { label: 'Projetos',          btnLabel: 'Novo Projeto' },
   tasks:      { label: 'Tarefas',           btnLabel: 'Nova Tarefa' },
   habits:     { label: 'Hábitos',           btnLabel: 'Novo Hábito' },
@@ -271,6 +271,10 @@ function navigateTo(section, direction = null) {
   const navItem = document.querySelector(`.nav-item[data-section="${section}"]`);
   if (navItem) navItem.classList.add('active');
   S.section = section;
+  document.getElementById('jarvisBtn')?.classList.toggle('hide-on-page', section === 'jarvis');
+  syncMobileNavigation(section);
+  closeMobileNavigation();
+  toggleMobileSearch(false);
   const meta = sectionMeta[section];
   document.getElementById('pageBreadcrumb').textContent = meta.label;
   const btn = document.getElementById('primaryBtn');
@@ -283,6 +287,43 @@ function navigateTo(section, direction = null) {
   }
   renderSection(section);
   updateNotifBadge();
+}
+
+function isMobileLayout() {
+  return window.matchMedia?.('(max-width: 767px)').matches;
+}
+
+function syncMobileNavigation(section = S.section) {
+  const primarySections = ['dashboard', 'tasks', 'agenda', 'financial'];
+  document.querySelectorAll('.mobile-tab[data-section]').forEach(button => {
+    const active = button.dataset.section === section;
+    button.classList.toggle('active', active);
+    if (active) button.setAttribute('aria-current', 'page');
+    else button.removeAttribute('aria-current');
+  });
+  document.getElementById('mobileMoreBtn')?.classList.toggle('active', !primarySections.includes(section));
+}
+
+function openMobileNavigation() {
+  if (!isMobileLayout()) return;
+  document.getElementById('sidebar')?.classList.add('mobile-open');
+  document.getElementById('mobileNavBackdrop')?.classList.add('open');
+  document.body.classList.add('mobile-menu-open');
+}
+
+function closeMobileNavigation() {
+  document.getElementById('sidebar')?.classList.remove('mobile-open');
+  document.getElementById('mobileNavBackdrop')?.classList.remove('open');
+  document.body.classList.remove('mobile-menu-open');
+}
+
+function toggleMobileSearch(force) {
+  const header = document.querySelector('.app-header');
+  const next = typeof force === 'boolean' ? force : !header?.classList.contains('mobile-search-open');
+  header?.classList.toggle('mobile-search-open', next);
+  document.getElementById('mobileSearchBtn')?.classList.toggle('active', next);
+  if (next) setTimeout(() => document.getElementById('globalSearch')?.focus(), 40);
+  else globalSearchClose();
 }
 
 function navigateByShortcut(direction) {
@@ -733,7 +774,7 @@ function renderDashboard() {
 
   // Metrics
   const activeProjs = S.projects.filter(p => p.status === 'Em desenvolvimento').length;
-  const pendingTasks = S.tasks.filter(t => t.col !== 'done').length;
+  const pendingTasks = S.tasks.filter(t => t.kind !== 'event' && t.col !== 'done').length;
   const totalIdeas = S.ideas.length;
   const totalContacts = S.contacts.length;
   document.getElementById('metricsGrid').innerHTML = `
@@ -772,7 +813,7 @@ function renderDashboard() {
   `;
 
   // Week Focus
-  const focusTasks = S.tasks.filter(t => t.col === 'inprogress' || t.col === 'today').slice(0, 4);
+  const focusTasks = S.tasks.filter(t => t.kind !== 'event' && (t.col === 'inprogress' || t.col === 'today')).slice(0, 4);
   document.getElementById('weekFocus').innerHTML = focusTasks.length
     ? focusTasks.map((t, i) => `
         <div class="focus-item">
@@ -783,7 +824,7 @@ function renderDashboard() {
     : '<div class="focus-item"><div class="focus-text" style="color:var(--text3)">Nenhuma tarefa ativa. Adicione tarefas no Kanban.</div></div>';
 
   // Priority Tasks
-  const hiPrio = S.tasks.filter(t => t.priority === 'Alta' && t.col !== 'done').slice(0, 5);
+  const hiPrio = S.tasks.filter(t => t.kind !== 'event' && t.priority === 'Alta' && t.col !== 'done').slice(0, 5);
   document.getElementById('priorityTasks').innerHTML = hiPrio.length
     ? hiPrio.map(t => `
         <div class="task-row">
@@ -936,7 +977,7 @@ const colLabels = { backlog: 'Backlog', today: 'Hoje', inprogress: 'Em andamento
 
 function renderKanban() {
   ['backlog','today','inprogress','done'].forEach(col => {
-    const tasks = S.tasks.filter(t => t.col === col);
+    const tasks = S.tasks.filter(t => t.kind !== 'event' && t.col === col);
     document.getElementById('ct-' + col).textContent = tasks.length;
     const q = (document.getElementById('globalSearch').value || '').toLowerCase();
     const filtered = q && S.section === 'tasks' ? tasks.filter(t => t.title.toLowerCase().includes(q)) : tasks;
@@ -1014,7 +1055,7 @@ function newTask(col) {
     const title = document.getElementById('f-title').value.trim();
     if (!title) { toast('Título obrigatório.', 'error'); return false; }
     S.tasks.unshift({ id: uid(), title, project: document.getElementById('f-project').value, priority: document.getElementById('f-priority').value, col: document.getElementById('f-col').value, due: document.getElementById('f-due').value, owner_id: currentUserId, owner_name: currentUserName });
-    saveTasks(); renderKanban(); renderDashboard(); toast('Tarefa criada!');
+    saveTasks(); renderKanban(); renderDashboard(); if (S.section === 'agenda') renderAgenda(); toast('Tarefa criada!');
   });
 }
 
@@ -1025,14 +1066,14 @@ function editTask(id) {
     const title = document.getElementById('f-title').value.trim();
     if (!title) { toast('Título obrigatório.', 'error'); return false; }
     Object.assign(t, { title, project: document.getElementById('f-project').value, priority: document.getElementById('f-priority').value, col: document.getElementById('f-col').value, due: document.getElementById('f-due').value });
-    saveTasks(); renderKanban(); renderDashboard(); toast('Tarefa atualizada!');
+    saveTasks(); renderKanban(); renderDashboard(); if (S.section === 'agenda') renderAgenda(); toast('Tarefa atualizada!');
   });
 }
 
 function delTask(id) {
   openConfirm(() => {
     S.tasks = S.tasks.filter(x => x.id !== id);
-    saveTasks(); renderKanban(); renderDashboard(); toast('Tarefa excluída.', 'info');
+    saveTasks(); renderKanban(); renderDashboard(); if (S.section === 'agenda') renderAgenda(); toast('Tarefa excluída.', 'info');
   });
 }
 
@@ -1271,43 +1312,158 @@ function delContact(id) {
 }
 
 /* ===== FINANCIAL ===== */
+function isRecurringTransaction(transaction) {
+  return transaction?.kind === 'recurring' && Boolean(transaction?.recurrence?.frequency);
+}
+
+function transactionMatchesPattern(transaction, dateString) {
+  const recurrence = transaction.recurrence || {};
+  const start = dateFromString(transaction.date);
+  const date = dateFromString(dateString);
+  if (!transaction.date || Number.isNaN(start.getTime()) || date < start) return false;
+  const interval = Math.max(Number(recurrence.interval) || 1, 1);
+  const diffDays = Math.floor((date - start) / 86400000);
+  if (recurrence.frequency === 'weekly') return diffDays >= 0 && diffDays % (7 * interval) === 0;
+  if (recurrence.frequency === 'yearly') {
+    const yearDiff = date.getFullYear() - start.getFullYear();
+    return yearDiff >= 0 && yearDiff % interval === 0 && date.getMonth() === start.getMonth() && date.getDate() === start.getDate();
+  }
+  const monthDiff = (date.getFullYear() - start.getFullYear()) * 12 + date.getMonth() - start.getMonth();
+  return monthDiff >= 0 && monthDiff % interval === 0 && date.getDate() === start.getDate();
+}
+
+function transactionOccursOn(transaction, dateString) {
+  if (!isRecurringTransaction(transaction) || !transactionMatchesPattern(transaction, dateString)) return false;
+  const recurrence = transaction.recurrence;
+  return !(recurrence.end === 'date' && recurrence.until && dateString > recurrence.until);
+}
+
+function financialEntriesBetween(from, to) {
+  const entries = S.transactions
+    .filter(transaction => !isRecurringTransaction(transaction) && transaction.date >= from && transaction.date <= to)
+    .map(transaction => ({ ...transaction, projected: transaction.date > localDateString(new Date()) }));
+  S.transactions.filter(isRecurringTransaction).forEach(series => {
+    const start = series.date > from ? series.date : from;
+    for (let cursor = start; cursor <= to; cursor = addCalendarDays(cursor, 1)) {
+      if (transactionOccursOn(series, cursor)) entries.push({ ...series, id: `${series.id}:${cursor}`, date: cursor, seriesId: series.id, projected: cursor > localDateString(new Date()) });
+      if (series.recurrence.end === 'date' && series.recurrence.until && cursor > series.recurrence.until) break;
+    }
+  });
+  return entries;
+}
+
+function financialTotals(entries) {
+  const income = entries.filter(item => item.type === 'Receita').reduce((sum, item) => sum + Number(item.value || 0), 0);
+  const expense = entries.filter(item => item.type === 'Despesa').reduce((sum, item) => sum + Number(item.value || 0), 0);
+  return { income, expense, balance: income - expense };
+}
+
+function financialMonthRange(offset = 0) {
+  const date = new Date();
+  date.setDate(1);
+  date.setMonth(date.getMonth() + offset);
+  const start = localDateString(date);
+  const end = localDateString(new Date(date.getFullYear(), date.getMonth() + 1, 0));
+  return { start, end, label: date.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', '') };
+}
+
+function recurringTransactionLabel(transaction) {
+  const recurrence = transaction.recurrence || {};
+  const interval = Math.max(Number(recurrence.interval) || 1, 1);
+  const labels = {
+    weekly: interval === 1 ? 'Toda semana' : `A cada ${interval} semanas`,
+    monthly: interval === 1 ? 'Todo mês' : `A cada ${interval} meses`,
+    yearly: interval === 1 ? 'Todo ano' : `A cada ${interval} anos`
+  };
+  let label = labels[recurrence.frequency] || 'Recorrente';
+  if (recurrence.end === 'date' && recurrence.until) label += ` · até ${fmtDate(recurrence.until)}`;
+  return label;
+}
+
+function nextTransactionOccurrence(transaction, from = localDateString(new Date())) {
+  const start = transaction.date > from ? transaction.date : from;
+  for (let cursor = start, checked = 0; checked < 3660; cursor = addCalendarDays(cursor, 1), checked++) {
+    if (transactionOccursOn(transaction, cursor)) return cursor;
+    if (transaction.recurrence?.end === 'date' && transaction.recurrence.until && cursor > transaction.recurrence.until) break;
+  }
+  return '';
+}
+
+function validateFinancialRecurrenceArgs(args, startDate) {
+  const frequency = args.frequency || 'monthly';
+  const end = args.end_type || 'never';
+  if (!['weekly','monthly','yearly'].includes(frequency)) return 'Frequência inválida.';
+  if (!['never','date'].includes(end)) return 'Regra de término inválida.';
+  if (end === 'date' && (!args.until || args.until < startDate)) return 'A data final deve ser igual ou posterior à inicial.';
+  return '';
+}
+
 function renderFinancial() {
-  const income = S.transactions.filter(t => t.type === 'Receita').reduce((s, t) => s + (+t.value || 0), 0);
-  const expense = S.transactions.filter(t => t.type === 'Despesa').reduce((s, t) => s + (+t.value || 0), 0);
-  const balance = income - expense;
+  const today = localDateString(new Date());
+  const earliest = S.transactions.map(item => item.date).filter(Boolean).sort()[0] || today;
+  const realized = financialTotals(financialEntriesBetween(earliest, today));
+  const next30 = financialTotals(financialEntriesBetween(addCalendarDays(today, 1), addCalendarDays(today, 30)));
+  const { income, expense, balance } = realized;
 
   document.getElementById('financialMetrics').innerHTML = `
     <div class="metric-card" style="--accent-color:#22C55E">
       <div class="metric-icon" style="background:rgba(34,197,94,0.15);color:#22C55E"><i class='bx bx-trending-up'></i></div>
       <div class="metric-body">
         <div class="metric-value" style="font-size:20px">${fmtCurrency(income)}</div>
-        <div class="metric-label">Receita Total</div>
+        <div class="metric-label">Receitas realizadas</div>
       </div>
     </div>
     <div class="metric-card" style="--accent-color:#FF4757">
       <div class="metric-icon" style="background:rgba(255,71,87,0.12);color:#FF4757"><i class='bx bx-trending-down'></i></div>
       <div class="metric-body">
         <div class="metric-value" style="font-size:20px">${fmtCurrency(expense)}</div>
-        <div class="metric-label">Despesas Totais</div>
+        <div class="metric-label">Despesas realizadas</div>
       </div>
     </div>
     <div class="metric-card" style="--accent-color:${balance >= 0 ? '#22C55E' : '#FF4757'}">
       <div class="metric-icon" style="background:${balance>=0?'rgba(34,197,94,0.15)':'rgba(255,71,87,0.12)'};color:${balance>=0?'#22C55E':'#FF4757'}"><i class='bx bx-wallet'></i></div>
       <div class="metric-body">
         <div class="metric-value" style="font-size:20px;color:${balance>=0?'#22C55E':'var(--red)'}">${fmtCurrency(balance)}</div>
-        <div class="metric-label">${balance >= 0 ? 'Lucro Estimado' : 'Prejuízo Estimado'}</div>
+        <div class="metric-label">${balance >= 0 ? 'Saldo acumulado' : 'Saldo negativo'}</div>
       </div>
     </div>
     <div class="metric-card" style="--accent-color:#4D8EFF">
-      <div class="metric-icon" style="background:rgba(77,142,255,0.12);color:#4D8EFF"><i class='bx bx-receipt'></i></div>
+      <div class="metric-icon" style="background:rgba(77,142,255,0.12);color:#4D8EFF"><i class='bx bx-calendar-check'></i></div>
       <div class="metric-body">
-        <div class="metric-value">${S.transactions.length}</div>
-        <div class="metric-label">Lançamentos</div>
+        <div class="metric-value" style="font-size:20px;color:${next30.balance>=0?'#22C55E':'var(--red)'}">${fmtCurrency(next30.balance)}</div>
+        <div class="metric-label">Fluxo previsto · 30 dias</div>
       </div>
     </div>
   `;
 
-  let list = [...S.transactions].sort((a,b) => (b.date||'').localeCompare(a.date||''));
+  const months = Array.from({ length: 6 }, (_, offset) => {
+    const range = financialMonthRange(offset);
+    return { ...range, ...financialTotals(financialEntriesBetween(range.start, range.end)) };
+  });
+  const maxMonthValue = Math.max(...months.map(month => Math.max(month.income, month.expense)), 1);
+  document.getElementById('financialForecast').innerHTML = `
+    <div class="panel financial-forecast-panel">
+      <div class="panel-head"><div><h3 class="panel-title">Projeção de caixa</h3><p class="panel-subtitle">Lançamentos únicos e recorrentes dos próximos 6 meses</p></div></div>
+      <div class="forecast-months">${months.map(month => `
+        <div class="forecast-month">
+          <div class="forecast-month-head"><strong>${month.label}</strong><span class="${month.balance>=0?'income':'expense'}">${fmtCurrency(month.balance)}</span></div>
+          <div class="forecast-bar-row"><span>Entradas</span><div><i class="income" style="width:${Math.round(month.income/maxMonthValue*100)}%"></i></div><b>${fmtCurrency(month.income)}</b></div>
+          <div class="forecast-bar-row"><span>Saídas</span><div><i class="expense" style="width:${Math.round(month.expense/maxMonthValue*100)}%"></i></div><b>${fmtCurrency(month.expense)}</b></div>
+        </div>`).join('')}</div>
+    </div>`;
+
+  let recurring = S.transactions.filter(isRecurringTransaction);
+  if (S.finFilter !== 'all') recurring = recurring.filter(transaction => transaction.type === S.finFilter);
+  document.getElementById('recurringTransactions').innerHTML = `
+    <div class="panel recurring-financial-panel">
+      <div class="panel-head"><div><h3 class="panel-title">Lançamentos recorrentes</h3><p class="panel-subtitle">${recurring.length} série${recurring.length===1?'':'s'} cadastrada${recurring.length===1?'':'s'}</p></div><button class="btn-ghost" onclick="newTransaction(true)"><i class='bx bx-repeat'></i> Novo recorrente</button></div>
+      <div class="recurring-financial-list">${recurring.length ? recurring.map(transaction => {
+        const next = nextTransactionOccurrence(transaction);
+        return `<div class="recurring-financial-row"><div class="tx-icon ${transaction.type==='Receita'?'income':'expense'}"><i class='bx bx-repeat'></i></div><div class="tx-info"><div class="tx-desc">${escHtml(transaction.desc)}</div><div class="tx-meta">${escHtml(recurringTransactionLabel(transaction))} · ${next ? `próximo em ${fmtDate(next)}` : 'encerrado'}${transaction.project ? ` · ${escHtml(transaction.project)}` : ''}</div></div><div class="tx-amount ${transaction.type==='Receita'?'income':'expense'}">${transaction.type==='Receita'?'+':'-'}${fmtCurrency(transaction.value)}</div><div class="tx-actions"><button class="btn-icon green" onclick="editTransaction('${transaction.id}')"><i class='bx bx-edit-alt'></i></button><button class="btn-icon danger" onclick="delTransaction('${transaction.id}')"><i class='bx bx-trash'></i></button></div></div>`;
+      }).join('') : `<div class="finance-inline-empty">Nenhum lançamento recorrente neste filtro.</div>`}</div>
+    </div>`;
+
+  let list = S.transactions.filter(transaction => !isRecurringTransaction(transaction)).sort((a,b) => (b.date||'').localeCompare(a.date||''));
   if (S.finFilter !== 'all') list = list.filter(t => t.type === S.finFilter);
 
   document.querySelectorAll('#section-financial .ftab').forEach(btn => {
@@ -1336,62 +1492,81 @@ function renderFinancial() {
     </div>`).join('');
 }
 
-function transactionForm(t = {}) {
+function transactionForm(t = {}, forceRecurring = false) {
   const projNames = getProjectNames();
+  const recurring = forceRecurring || isRecurringTransaction(t);
+  const recurrence = t.recurrence || {};
+  const recurrenceEnd = recurrence.end || 'never';
+  const startDate = t.date || localDateString(new Date());
   return `
     <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Tipo *</label>
-        <select class="form-select" id="f-type">
-          <option${t.type==='Receita'?' selected':''}>Receita</option>
-          <option${t.type==='Despesa'?' selected':''}>Despesa</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Valor (R$) *</label>
-        <input class="form-input" id="f-value" type="number" min="0" step="0.01" placeholder="0,00" value="${t.value||''}">
-      </div>
+      <div class="form-group"><label class="form-label">Tipo *</label><select class="form-select" id="f-type"><option${t.type==='Receita'?' selected':''}>Receita</option><option${t.type==='Despesa'?' selected':''}>Despesa</option></select></div>
+      <div class="form-group"><label class="form-label">Valor (R$) *</label><input class="form-input" id="f-value" type="number" min="0" step="0.01" placeholder="0,00" value="${t.value||''}"></div>
     </div>
-    <div class="form-group">
-      <label class="form-label">Descrição *</label>
-      <input class="form-input" id="f-desc" placeholder="Ex: Hospedagem AWS" value="${escHtml(t.desc||'')}">
-    </div>
+    <div class="form-group"><label class="form-label">Descrição *</label><input class="form-input" id="f-desc" placeholder="Ex: Hospedagem AWS" value="${escHtml(t.desc||'')}"></div>
     <div class="form-row">
-      <div class="form-group">
-        <label class="form-label">Projeto</label>
-        <select class="form-select" id="f-project">
-          <option value="">— Geral —</option>
-          ${projNames.map(n => `<option${t.project===n?' selected':''}>${n}</option>`).join('')}
-        </select>
-      </div>
-      <div class="form-group">
-        <label class="form-label">Data</label>
-        <input class="form-input" id="f-date" type="date" value="${t.date || new Date().toISOString().slice(0,10)}">
-      </div>
+      <div class="form-group"><label class="form-label">Projeto</label><select class="form-select" id="f-project"><option value="">— Geral —</option>${projNames.map(n => `<option${t.project===n?' selected':''}>${escHtml(n)}</option>`).join('')}</select></div>
+      <div class="form-group"><label class="form-label">Data inicial</label><input class="form-input" id="f-date" type="date" value="${startDate}" onchange="syncTransactionRecurrenceForm()"></div>
     </div>
-  `;
+    <label class="finance-repeat-toggle"><input type="checkbox" id="f-tx-recurring"${recurring?' checked':''} onchange="syncTransactionRecurrenceForm()"><span><i class='bx bx-repeat'></i></span><div><strong>Repetir lançamento</strong><small>Inclui automaticamente este valor nas projeções futuras.</small></div></label>
+    <div class="finance-recurrence-box" id="financeRecurrenceBox"${recurring?'':' style="display:none"'}>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Frequência</label><select class="form-select" id="f-tx-frequency"><option value="weekly"${recurrence.frequency==='weekly'?' selected':''}>Semanal</option><option value="monthly"${(recurrence.frequency||'monthly')==='monthly'?' selected':''}>Mensal</option><option value="yearly"${recurrence.frequency==='yearly'?' selected':''}>Anual</option></select></div>
+        <div class="form-group"><label class="form-label">A cada</label><input class="form-input" id="f-tx-interval" type="number" min="1" max="99" value="${Math.max(Number(recurrence.interval)||1,1)}"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Término</label><select class="form-select" id="f-tx-end" onchange="syncTransactionRecurrenceForm()"><option value="never"${recurrenceEnd==='never'?' selected':''}>Nunca</option><option value="date"${recurrenceEnd==='date'?' selected':''}>Em uma data</option></select></div>
+        <div class="form-group" id="financeRecurrenceUntil"${recurrenceEnd==='never'?' style="display:none"':''}><label class="form-label">Última ocorrência</label><input class="form-input" id="f-tx-until" type="date" min="${startDate}" value="${recurrence.until || startDate}"></div>
+      </div>
+    </div>`;
 }
 
-function newTransaction() {
-  openModal('Novo Lançamento', transactionForm(), () => {
-    const desc = document.getElementById('f-desc').value.trim();
-    const value = parseFloat(document.getElementById('f-value').value);
-    if (!desc) { toast('Descrição obrigatória.', 'error'); return false; }
-    if (!value || value <= 0) { toast('Valor inválido.', 'error'); return false; }
-    S.transactions.unshift({ id: uid(), type: document.getElementById('f-type').value, desc, value, project: document.getElementById('f-project').value, date: document.getElementById('f-date').value, owner_id: currentUserId, owner_name: currentUserName });
+function syncTransactionRecurrenceForm() {
+  const recurring = document.getElementById('f-tx-recurring')?.checked;
+  const box = document.getElementById('financeRecurrenceBox');
+  if (box) box.style.display = recurring ? '' : 'none';
+  const end = document.getElementById('f-tx-end')?.value;
+  const untilWrap = document.getElementById('financeRecurrenceUntil');
+  if (untilWrap) untilWrap.style.display = recurring && end === 'date' ? '' : 'none';
+  const until = document.getElementById('f-tx-until');
+  if (until) until.min = document.getElementById('f-date')?.value || '';
+}
+
+function readTransactionForm(existing = {}) {
+  const desc = document.getElementById('f-desc').value.trim();
+  const value = parseFloat(document.getElementById('f-value').value);
+  const date = document.getElementById('f-date').value;
+  if (!desc) { toast('Descrição obrigatória.', 'error'); return null; }
+  if (!value || value <= 0) { toast('Valor inválido.', 'error'); return null; }
+  if (!date) { toast('Data obrigatória.', 'error'); return null; }
+  const recurring = document.getElementById('f-tx-recurring').checked;
+  const end = document.getElementById('f-tx-end').value;
+  const until = document.getElementById('f-tx-until').value;
+  if (recurring && end === 'date' && (!until || until < date)) { toast('A última ocorrência deve ser posterior à data inicial.', 'error'); return null; }
+  return {
+    ...existing, type: document.getElementById('f-type').value, desc, value,
+    project: document.getElementById('f-project').value, date,
+    kind: recurring ? 'recurring' : undefined,
+    recurrence: recurring ? { frequency: document.getElementById('f-tx-frequency').value, interval: Math.max(Number(document.getElementById('f-tx-interval').value) || 1, 1), end, until: end === 'date' ? until : '' } : undefined
+  };
+}
+
+function newTransaction(forceRecurring = false) {
+  openModal(forceRecurring ? 'Novo Lançamento Recorrente' : 'Novo Lançamento', transactionForm({}, forceRecurring), () => {
+    const transaction = readTransactionForm({ id: uid(), owner_id: currentUserId, owner_name: currentUserName });
+    if (!transaction) return false;
+    S.transactions.unshift(transaction);
     saveTransactions(); renderFinancial(); toast('Lançamento criado!');
   });
 }
 
 function editTransaction(id) {
-  const t = S.transactions.find(x => x.id === id);
-  if (!t) return;
-  openModal('Editar Lançamento', transactionForm(t), () => {
-    const desc = document.getElementById('f-desc').value.trim();
-    const value = parseFloat(document.getElementById('f-value').value);
-    if (!desc) { toast('Descrição obrigatória.', 'error'); return false; }
-    if (!value || value <= 0) { toast('Valor inválido.', 'error'); return false; }
-    Object.assign(t, { type: document.getElementById('f-type').value, desc, value, project: document.getElementById('f-project').value, date: document.getElementById('f-date').value });
+  const transaction = S.transactions.find(item => item.id === id);
+  if (!transaction) return;
+  openModal('Editar Lançamento', transactionForm(transaction), () => {
+    const updated = readTransactionForm(transaction);
+    if (!updated) return false;
+    Object.assign(transaction, updated);
     saveTransactions(); renderFinancial(); toast('Lançamento atualizado!');
   });
 }
@@ -1522,7 +1697,7 @@ function copyDoc(id) {
 /* ===== PRIMARY BUTTON ACTIONS ===== */
 function primaryAction() {
   const actions = {
-    agenda:   () => newTask(_calSelected || ''),
+    agenda:   () => newRecurringEvent(_calSelected || localDateString(new Date())),
     projects: () => newProject(),
     tasks: () => newTask(),
     habits: () => newHabit(),
@@ -1561,7 +1736,7 @@ function calcStreak(h) {
 
 /* ===== HABITS ===== */
 function renderHabits() {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateString(new Date());
   const done = S.habits.filter(h => h.completions.includes(today)).length;
   const total = S.habits.length;
   const pct = total ? Math.round((done / total) * 100) : 0;
@@ -2020,12 +2195,242 @@ function delReview(id) {
 let _calYear = new Date().getFullYear();
 let _calMonth = new Date().getMonth();
 let _calSelected = null;
+let _agendaMode = 'calendar';
 
 const CAL_MONTHS = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const CAL_DAYS   = ['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
 
+function localDateString(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function dateFromString(value) {
+  const [year, month, day] = String(value || '').split('-').map(Number);
+  return new Date(year, month - 1, day);
+}
+
+function addCalendarDays(value, amount) {
+  const date = dateFromString(value);
+  date.setDate(date.getDate() + amount);
+  return localDateString(date);
+}
+
+function weekStartDate(date) {
+  const result = new Date(date);
+  const day = result.getDay();
+  result.setDate(result.getDate() - (day === 0 ? 6 : day - 1));
+  result.setHours(0, 0, 0, 0);
+  return result;
+}
+
+function isRecurringEvent(item) {
+  return item?.kind === 'event' && item?.recurrence?.frequency;
+}
+
+function eventMatchesPattern(event, dateString) {
+  const recurrence = event.recurrence || {};
+  const start = dateFromString(event.due);
+  const date = dateFromString(dateString);
+  if (!event.due || Number.isNaN(start.getTime()) || date < start) return false;
+  const interval = Math.max(Number(recurrence.interval) || 1, 1);
+  const diffDays = Math.floor((date - start) / 86400000);
+  if (recurrence.frequency === 'daily') return diffDays % interval === 0;
+  if (recurrence.frequency === 'monthly') {
+    const monthDiff = (date.getFullYear() - start.getFullYear()) * 12 + date.getMonth() - start.getMonth();
+    return monthDiff >= 0 && monthDiff % interval === 0 && date.getDate() === start.getDate();
+  }
+  const weekdays = Array.isArray(recurrence.weekdays) && recurrence.weekdays.length
+    ? recurrence.weekdays.map(Number)
+    : [start.getDay()];
+  const weekDiff = Math.floor((weekStartDate(date) - weekStartDate(start)) / (7 * 86400000));
+  return weekDiff >= 0 && weekDiff % interval === 0 && weekdays.includes(date.getDay());
+}
+
+function eventOccurrenceNumber(event, dateString) {
+  let count = 0;
+  for (let cursor = event.due; cursor && cursor <= dateString; cursor = addCalendarDays(cursor, 1)) {
+    if (eventMatchesPattern(event, cursor)) count++;
+  }
+  return count;
+}
+
+function eventOccursOn(event, dateString) {
+  if (!isRecurringEvent(event) || !eventMatchesPattern(event, dateString)) return false;
+  const recurrence = event.recurrence;
+  if (recurrence.end === 'date' && recurrence.until && dateString > recurrence.until) return false;
+  if (recurrence.end === 'count' && Number(recurrence.count) > 0) {
+    return eventOccurrenceNumber(event, dateString) <= Number(recurrence.count);
+  }
+  return true;
+}
+
+function agendaItemsForDate(dateString) {
+  return S.tasks.filter(item => {
+    if (isRecurringEvent(item)) return eventOccursOn(item, dateString);
+    return item.kind !== 'event' && item.due === dateString;
+  }).sort((a, b) => (a.time || '99:99').localeCompare(b.time || '99:99'));
+}
+
+function nextEventOccurrence(event, from = localDateString(new Date())) {
+  if (event.recurrence?.end === 'count' && Number(event.recurrence.count) > 0) {
+    let occurrence = 0;
+    for (let cursor = event.due, checked = 0; cursor && checked < 36600; cursor = addCalendarDays(cursor, 1), checked++) {
+      if (!eventMatchesPattern(event, cursor)) continue;
+      occurrence++;
+      if (cursor >= from) return cursor;
+      if (occurrence >= Number(event.recurrence.count)) return '';
+    }
+    return '';
+  }
+  const start = event.due > from ? event.due : from;
+  for (let cursor = start, checked = 0; checked < 3660; cursor = addCalendarDays(cursor, 1), checked++) {
+    if (eventOccursOn(event, cursor)) return cursor;
+    if (event.recurrence?.end === 'date' && event.recurrence.until && cursor > event.recurrence.until) break;
+  }
+  return '';
+}
+
+function recurrenceLabel(event) {
+  const recurrence = event.recurrence || {};
+  const interval = Math.max(Number(recurrence.interval) || 1, 1);
+  let label = '';
+  if (recurrence.frequency === 'daily') label = interval === 1 ? 'Todos os dias' : `A cada ${interval} dias`;
+  else if (recurrence.frequency === 'monthly') label = interval === 1 ? `Todo mês, dia ${dateFromString(event.due).getDate()}` : `A cada ${interval} meses`;
+  else {
+    const names = ['dom','seg','ter','qua','qui','sex','sáb'];
+    const days = (recurrence.weekdays || [dateFromString(event.due).getDay()]).map(day => names[Number(day)]).join(', ');
+    label = interval === 1 ? `Toda semana: ${days}` : `A cada ${interval} semanas: ${days}`;
+  }
+  if (recurrence.end === 'date' && recurrence.until) label += ` · até ${fmtDate(recurrence.until)}`;
+  if (recurrence.end === 'count' && recurrence.count) label += ` · ${recurrence.count} ocorrências`;
+  return label;
+}
+
+function recurringEventForm(event = {}) {
+  const recurrence = event.recurrence || {};
+  const start = event.due || localDateString(new Date());
+  const startDay = dateFromString(start).getDay();
+  const weekdays = (recurrence.weekdays || [startDay]).map(Number);
+  const frequency = recurrence.frequency || 'weekly';
+  const end = recurrence.end || 'never';
+  const weekdayNames = [['D',0],['S',1],['T',2],['Q',3],['Q',4],['S',5],['S',6]];
+  return `
+    <div class="form-group">
+      <label class="form-label">Nome do evento *</label>
+      <input class="form-input" id="f-event-title" placeholder="Ex: Reunião semanal" value="${escHtml(event.title || '')}">
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Data inicial *</label><input class="form-input" id="f-event-start" type="date" value="${start}" onchange="syncRecurrenceForm()"></div>
+      <div class="form-group"><label class="form-label">Horário *</label><input class="form-input" id="f-event-time" type="time" value="${event.time || '09:00'}"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label class="form-label">Projeto</label><select class="form-select" id="f-event-project"><option value="">— Nenhum —</option>${getProjectNames().map(name => `<option${event.project===name?' selected':''}>${escHtml(name)}</option>`).join('')}</select></div>
+      <div class="form-group"><label class="form-label">Duração</label><select class="form-select" id="f-event-duration">${[15,30,45,60,90,120].map(value => `<option value="${value}"${Number(event.duration || 60)===value?' selected':''}>${value < 60 ? `${value} min` : `${value/60}h`}</option>`).join('')}</select></div>
+    </div>
+    <div class="recurrence-box">
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Repetir</label><select class="form-select" id="f-event-frequency" onchange="syncRecurrenceForm()"><option value="daily"${frequency==='daily'?' selected':''}>Diariamente</option><option value="weekly"${frequency==='weekly'?' selected':''}>Semanalmente</option><option value="monthly"${frequency==='monthly'?' selected':''}>Mensalmente</option></select></div>
+        <div class="form-group"><label class="form-label">Intervalo</label><input class="form-input" id="f-event-interval" type="number" min="1" max="99" value="${Math.max(Number(recurrence.interval)||1,1)}"></div>
+      </div>
+      <div class="form-group" id="recurrenceWeekdays"${frequency!=='weekly'?' style="display:none"':''}>
+        <label class="form-label">Dias da semana</label><div class="weekday-picker">${weekdayNames.map(([name, value]) => `<label class="weekday-option"><input type="checkbox" name="event-weekday" value="${value}"${weekdays.includes(value)?' checked':''}><span>${name}</span></label>`).join('')}</div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label class="form-label">Término</label><select class="form-select" id="f-event-end" onchange="syncRecurrenceForm()"><option value="never"${end==='never'?' selected':''}>Nunca</option><option value="date"${end==='date'?' selected':''}>Em uma data</option><option value="count"${end==='count'?' selected':''}>Após ocorrências</option></select></div>
+        <div class="form-group" id="recurrenceEndValue"${end==='never'?' style="display:none"':''}><label class="form-label" id="recurrenceEndLabel">${end==='count'?'Quantidade':'Última data'}</label><input class="form-input" id="f-event-until" type="${end==='count'?'number':'date'}" min="${end==='count'?'1':start}" value="${end==='count'?(recurrence.count||10):(recurrence.until||start)}"></div>
+      </div>
+    </div>`;
+}
+
+function syncRecurrenceForm() {
+  const frequency = document.getElementById('f-event-frequency')?.value;
+  const end = document.getElementById('f-event-end')?.value;
+  const weekdays = document.getElementById('recurrenceWeekdays');
+  if (weekdays) weekdays.style.display = frequency === 'weekly' ? '' : 'none';
+  const wrap = document.getElementById('recurrenceEndValue');
+  const input = document.getElementById('f-event-until');
+  const label = document.getElementById('recurrenceEndLabel');
+  if (!wrap || !input || !label) return;
+  wrap.style.display = end === 'never' ? 'none' : '';
+  label.textContent = end === 'count' ? 'Quantidade' : 'Última data';
+  input.type = end === 'count' ? 'number' : 'date';
+  input.min = end === 'count' ? '1' : (document.getElementById('f-event-start')?.value || '');
+  if (end === 'count' && !Number(input.value)) input.value = 10;
+  if (end === 'date' && !/^\d{4}-\d{2}-\d{2}$/.test(input.value)) input.value = document.getElementById('f-event-start')?.value || localDateString(new Date());
+}
+
+function readRecurringEventForm(existing = {}) {
+  const title = document.getElementById('f-event-title').value.trim();
+  const due = document.getElementById('f-event-start').value;
+  const time = document.getElementById('f-event-time').value;
+  const frequency = document.getElementById('f-event-frequency').value;
+  const end = document.getElementById('f-event-end').value;
+  const weekdays = [...document.querySelectorAll('input[name="event-weekday"]:checked')].map(input => Number(input.value));
+  if (!title || !due || !time) { toast('Preencha nome, data e horário.', 'error'); return null; }
+  if (frequency === 'weekly' && !weekdays.length) { toast('Selecione ao menos um dia da semana.', 'error'); return null; }
+  const untilValue = document.getElementById('f-event-until').value;
+  if (end === 'date' && (!untilValue || untilValue < due)) { toast('A data final deve ser posterior à inicial.', 'error'); return null; }
+  return {
+    ...existing, kind: 'event', title, due, time,
+    duration: Number(document.getElementById('f-event-duration').value) || 60,
+    project: document.getElementById('f-event-project').value,
+    priority: existing.priority || 'Média', col: 'calendar',
+    recurrence: {
+      frequency,
+      interval: Math.max(Number(document.getElementById('f-event-interval').value) || 1, 1),
+      weekdays: frequency === 'weekly' ? weekdays : [], end,
+      until: end === 'date' ? untilValue : '',
+      count: end === 'count' ? Math.max(Number(untilValue) || 1, 1) : null
+    }
+  };
+}
+
+function newRecurringEvent(startDate = localDateString(new Date())) {
+  openModal('Novo Evento Recorrente', recurringEventForm({ due: startDate }), () => {
+    const event = readRecurringEventForm({ id: uid(), owner_id: currentUserId, owner_name: currentUserName });
+    if (!event) return false;
+    S.tasks.unshift(event);
+    saveTasks(); renderAgenda(); renderDashboard(); toast('Evento recorrente criado!');
+  });
+}
+
+function editRecurringEvent(id) {
+  const event = S.tasks.find(item => item.id === id && isRecurringEvent(item));
+  if (!event) return;
+  openModal('Editar Série Recorrente', recurringEventForm(event), () => {
+    const updated = readRecurringEventForm(event);
+    if (!updated) return false;
+    Object.assign(event, updated);
+    saveTasks(); renderAgenda(); toast('Série recorrente atualizada!');
+  });
+}
+
+function deleteRecurringEvent(id) {
+  openConfirm(() => {
+    S.tasks = S.tasks.filter(item => item.id !== id);
+    saveTasks(); renderAgenda(); toast('Série recorrente excluída.', 'info');
+  });
+}
+
+function setAgendaMode(mode) {
+  _agendaMode = mode;
+  renderAgenda();
+}
+
+function renderRecurringEvents() {
+  const events = S.tasks.filter(isRecurringEvent).sort((a, b) => `${a.time || ''}${a.title}`.localeCompare(`${b.time || ''}${b.title}`));
+  if (!events.length) return `<div class="empty-state recurring-empty"><div class="empty-icon"><i class='bx bx-repeat'></i></div><div class="empty-title">Nenhum evento recorrente</div><div class="empty-sub">Cadastre reuniões, compromissos e rotinas que se repetem.</div><button class="btn-primary" onclick="newRecurringEvent()"><i class='bx bx-plus'></i> Criar primeiro evento</button></div>`;
+  return `<div class="recurring-list">${events.map(event => {
+    const next = nextEventOccurrence(event);
+    return `<article class="recurring-card"><div class="recurring-icon"><i class='bx bx-repeat'></i></div><div class="recurring-content"><div class="recurring-title-row"><h3>${escHtml(event.title)}</h3><span class="recurring-time">${escHtml(event.time || '—')}</span></div><p>${escHtml(recurrenceLabel(event))}</p><div class="recurring-meta">${event.project ? `<span class="focus-proj">${escHtml(event.project)}</span>` : ''}<span><i class='bx bx-time-five'></i> ${event.duration || 60} min</span><span><i class='bx bx-calendar-check'></i> ${next ? `Próxima: ${fmtDate(next)}` : 'Série encerrada'}</span></div></div><div class="recurring-actions"><button class="btn-icon green" title="Editar série" onclick="editRecurringEvent('${event.id}')"><i class='bx bx-edit-alt'></i></button><button class="btn-icon danger" title="Excluir série" onclick="deleteRecurringEvent('${event.id}')"><i class='bx bx-trash'></i></button></div></article>`;
+  }).join('')}</div>`;
+}
+
 function renderAgenda() {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateString(new Date());
   const year  = _calYear;
   const month = _calMonth;
 
@@ -2041,7 +2446,7 @@ function renderAgenda() {
     const ds = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
     const isToday = ds === today;
     const isSel   = ds === _calSelected;
-    const dayTasks = S.tasks.filter(t => t.due === ds && t.col !== 'done');
+    const dayTasks = agendaItemsForDate(ds).filter(t => t.col !== 'done' || isRecurringEvent(t));
     const dots = dayTasks.slice(0, 3).map(t => {
       const c = t.priority === 'Alta' ? 'red' : t.priority === 'Média' ? 'amber' : 'blue';
       return `<span class="cal-dot cal-dot-${c}"></span>`;
@@ -2057,14 +2462,15 @@ function renderAgenda() {
     const sel = _calSelected;
     const [sy, sm, sd] = sel.split('-');
     const label = `${parseInt(sd)} de ${CAL_MONTHS[parseInt(sm)-1]} de ${sy}`;
-    const selTasks = S.tasks.filter(t => t.due === sel && t.col !== 'done');
-    const doneTasks = S.tasks.filter(t => t.due === sel && t.col === 'done');
+    const selTasks = agendaItemsForDate(sel).filter(t => t.col !== 'done' || isRecurringEvent(t));
+    const doneTasks = agendaItemsForDate(sel).filter(t => t.col === 'done' && !isRecurringEvent(t));
 
     const taskRows = selTasks.length
       ? selTasks.map(t => `
-          <div class="cal-task-item" onclick="navigateTo('tasks')">
+          <div class="cal-task-item" onclick="${isRecurringEvent(t) ? `editRecurringEvent('${t.id}')` : `editTask('${t.id}')`}">
             <span class="prio prio-${t.priority==='Alta'?'high':t.priority==='Média'?'medium':'low'}">${t.priority}</span>
             <span class="cal-task-title">${escHtml(t.title)}</span>
+            ${isRecurringEvent(t) ? `<span class="event-time"><i class='bx bx-time-five'></i>${escHtml(t.time || '')}</span><span class="recurring-badge"><i class='bx bx-repeat'></i> Recorrente</span>` : ''}
             ${t.project ? `<span class="focus-proj">${escHtml(t.project)}</span>` : ''}
           </div>`).join('')
       : `<div class="notif-empty" style="padding:24px 0"><i class='bx bx-check-circle'></i><p>Nenhuma tarefa pendente</p></div>`;
@@ -2080,6 +2486,14 @@ function renderAgenda() {
   }
 
   document.getElementById('agendaView').innerHTML = `
+    <div class="agenda-toolbar">
+      <div class="agenda-tabs">
+        <button class="agenda-tab${_agendaMode==='calendar'?' active':''}" onclick="setAgendaMode('calendar')"><i class='bx bx-calendar'></i> Calendário</button>
+        <button class="agenda-tab${_agendaMode==='recurring'?' active':''}" onclick="setAgendaMode('recurring')"><i class='bx bx-repeat'></i> Recorrentes <span>${S.tasks.filter(isRecurringEvent).length}</span></button>
+      </div>
+      <button class="btn-primary" onclick="newRecurringEvent(_calSelected || localDateString(new Date()))"><i class='bx bx-plus'></i> Evento recorrente</button>
+    </div>
+    ${_agendaMode === 'recurring' ? renderRecurringEvents() : `
     <div class="cal-header">
       <button class="btn-icon" onclick="calNav(-1)"><i class='bx bx-chevron-left'></i></button>
       <h2 class="cal-month-label">${CAL_MONTHS[month]} ${year}</h2>
@@ -2090,7 +2504,7 @@ function renderAgenda() {
       <div class="cal-weekdays">${CAL_DAYS.map(d=>`<span>${d}</span>`).join('')}</div>
       <div class="cal-grid">${cells}</div>
     </div>
-    ${dayPanel}`;
+    ${dayPanel}`}`;
 }
 
 function selectCalDay(ds) {
@@ -2109,7 +2523,7 @@ function calGoToday() {
   const now = new Date();
   _calYear  = now.getFullYear();
   _calMonth = now.getMonth();
-  _calSelected = now.toISOString().slice(0, 10);
+  _calSelected = localDateString(now);
   renderAgenda();
 }
 
@@ -2118,7 +2532,7 @@ function buildNotifications() {
   const today = new Date().toISOString().slice(0, 10);
   const notifs = [];
 
-  const overdue = S.tasks.filter(t => t.col !== 'done' && t.due && t.due < today);
+  const overdue = S.tasks.filter(t => t.kind !== 'event' && t.col !== 'done' && t.due && t.due < today);
   if (overdue.length) notifs.push({
     icon: 'bx-error-circle', color: 'red',
     title: `${overdue.length} tarefa${overdue.length > 1 ? 's' : ''} vencida${overdue.length > 1 ? 's' : ''}`,
@@ -2126,7 +2540,7 @@ function buildNotifications() {
     section: 'tasks'
   });
 
-  const dueToday = S.tasks.filter(t => t.col !== 'done' && t.due === today);
+  const dueToday = S.tasks.filter(t => t.kind !== 'event' && t.col !== 'done' && t.due === today);
   if (dueToday.length) notifs.push({
     icon: 'bx-calendar-check', color: 'amber',
     title: `${dueToday.length} tarefa${dueToday.length > 1 ? 's' : ''} para hoje`,
@@ -2201,6 +2615,7 @@ function bindEvents() {
       if (item.classList.contains('nav-external')) return;
       e.preventDefault();
       navigateTo(item.dataset.section);
+      closeMobileNavigation();
     });
   });
 
@@ -2215,7 +2630,17 @@ function bindEvents() {
 
   // Sidebar toggle
   document.getElementById('sidebarToggle').addEventListener('click', () => {
-    document.getElementById('sidebar').classList.toggle('collapsed');
+    if (isMobileLayout()) openMobileNavigation();
+    else document.getElementById('sidebar').classList.toggle('collapsed');
+  });
+  document.getElementById('mobileMoreBtn')?.addEventListener('click', openMobileNavigation);
+  document.getElementById('mobileNavBackdrop')?.addEventListener('click', closeMobileNavigation);
+  document.getElementById('mobileSearchBtn')?.addEventListener('click', e => {
+    e.stopPropagation();
+    toggleMobileSearch();
+  });
+  window.addEventListener('resize', () => {
+    if (!isMobileLayout()) { closeMobileNavigation(); toggleMobileSearch(false); }
   });
 
   // Primary action button
@@ -2244,7 +2669,7 @@ function bindEvents() {
 
   // Global keyboard shortcuts
   document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { closeModal(); closeConfirm(); }
+    if (e.key === 'Escape') { closeModal(); closeConfirm(); closeMobileNavigation(); toggleMobileSearch(false); }
     const isTyping = e.target?.matches?.('input, textarea, select, [contenteditable="true"]');
     const hasOverlayOpen = document.getElementById('modalOverlay')?.classList.contains('open') ||
       document.getElementById('confirmOverlay')?.classList.contains('open');
@@ -2398,10 +2823,16 @@ function globalSearchHandler() {
 
   const groups = [];
 
-  const tasks = S.tasks.filter(t =>
+  const tasks = S.tasks.filter(t => t.kind !== 'event' && (
     t.title.toLowerCase().includes(q) || (t.project||'').toLowerCase().includes(q)
+  )
   ).slice(0, 4);
   if (tasks.length) groups.push({ label: 'Tarefas', icon: 'bx-check-square', bg: '--blue-dim', color: '--blue', section: 'tasks', items: tasks.map(t => ({ title: t.title, sub: t.project || 'Tarefa', id: null })) });
+
+  const recurringEvents = S.tasks.filter(event => isRecurringEvent(event) && (
+    event.title.toLowerCase().includes(q) || (event.project || '').toLowerCase().includes(q)
+  )).slice(0, 4);
+  if (recurringEvents.length) groups.push({ label: 'Eventos recorrentes', icon: 'bx-repeat', bg: '--purple-dim', color: '--purple', section: 'agenda', items: recurringEvents.map(event => ({ title: event.title, sub: `${event.time || ''} · ${recurrenceLabel(event)}`, id: null })) });
 
   const projects = S.projects.filter(p =>
     p.name.toLowerCase().includes(q) || (p.desc||'').toLowerCase().includes(q)
@@ -2958,6 +3389,56 @@ const JARVIS_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'list_recurring_events',
+      description: 'Lista todas as séries de eventos recorrentes da agenda, incluindo regra, horário e próxima ocorrência.',
+      parameters: { type: 'object', properties: {}, required: [] }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_recurring_event',
+      description: 'Cria um evento recorrente na agenda. Para reunião toda segunda, use frequency weekly e weekdays [1].',
+      parameters: {
+        type: 'object',
+        properties: {
+          title: { type: 'string' }, start_date: { type: 'string', description: 'YYYY-MM-DD' }, time: { type: 'string', description: 'HH:MM' },
+          duration: { type: 'number', description: 'Duração em minutos' }, project: { type: 'string' },
+          frequency: { type: 'string', enum: ['daily','weekly','monthly'] }, interval: { type: 'number', minimum: 1 },
+          weekdays: { type: 'array', items: { type: 'number', minimum: 0, maximum: 6 }, description: '0=domingo, 1=segunda, ... 6=sábado' },
+          end_type: { type: 'string', enum: ['never','date','count'] }, until: { type: 'string', description: 'YYYY-MM-DD' }, count: { type: 'number', minimum: 1 }
+        },
+        required: ['title','start_date','time','frequency']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_recurring_event',
+      description: 'Atualiza uma série recorrente inteira pelo ID.',
+      parameters: {
+        type: 'object',
+        properties: {
+          id: { type: 'string' }, title: { type: 'string' }, start_date: { type: 'string' }, time: { type: 'string' }, duration: { type: 'number' }, project: { type: 'string' },
+          frequency: { type: 'string', enum: ['daily','weekly','monthly'] }, interval: { type: 'number', minimum: 1 }, weekdays: { type: 'array', items: { type: 'number' } },
+          end_type: { type: 'string', enum: ['never','date','count'] }, until: { type: 'string' }, count: { type: 'number', minimum: 1 }
+        },
+        required: ['id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_recurring_event',
+      description: 'Exclui uma série inteira de eventos recorrentes pelo ID.',
+      parameters: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'list_projects',
       description: 'Lista todos os projetos.',
       parameters: { type: 'object', properties: {}, required: [] }
@@ -3192,7 +3673,12 @@ const JARVIS_TOOLS = [
           desc:    { type: 'string' },
           value:   { type: 'number' },
           project: { type: 'string' },
-          date:    { type: 'string', description: 'YYYY-MM-DD, padrão hoje' }
+          date:    { type: 'string', description: 'YYYY-MM-DD, padrão hoje' },
+          recurring: { type: 'boolean', description: 'Se true, cria uma série recorrente' },
+          frequency: { type: 'string', enum: ['weekly','monthly','yearly'] },
+          interval: { type: 'number', minimum: 1 },
+          end_type: { type: 'string', enum: ['never','date'] },
+          until: { type: 'string', description: 'YYYY-MM-DD quando end_type=date' }
         },
         required: ['type','desc','value']
       }
@@ -3202,7 +3688,7 @@ const JARVIS_TOOLS = [
     type: 'function',
     function: {
       name: 'list_transactions',
-      description: 'Lista ultimos lancamentos financeiros.',
+      description: 'Lista lançamentos financeiros únicos e séries recorrentes.',
       parameters: {
         type: 'object',
         properties: { limit: { type: 'number', minimum: 1, maximum: 30 } },
@@ -3224,6 +3710,30 @@ const JARVIS_TOOLS = [
         },
         required: ['query']
       }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'update_transaction',
+      description: 'Atualiza um lançamento financeiro ou uma série recorrente pelo ID.',
+      parameters: { type: 'object', properties: { id: { type: 'string' }, type: { type: 'string', enum: ['Receita','Despesa'] }, desc: { type: 'string' }, value: { type: 'number' }, project: { type: 'string' }, date: { type: 'string' }, recurring: { type: 'boolean' }, frequency: { type: 'string', enum: ['weekly','monthly','yearly'] }, interval: { type: 'number', minimum: 1 }, end_type: { type: 'string', enum: ['never','date'] }, until: { type: 'string' } }, required: ['id'] }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'delete_transaction',
+      description: 'Exclui um lançamento financeiro ou uma série recorrente pelo ID.',
+      parameters: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'get_financial_forecast',
+      description: 'Calcula entradas, saídas e saldo projetado mês a mês, considerando recorrências.',
+      parameters: { type: 'object', properties: { months: { type: 'number', minimum: 1, maximum: 24 } }, required: [] }
     }
   },
   {
@@ -3399,26 +3909,27 @@ function jarvisOpenCodeAssets(args = {}) {
 }
 
 async function jarvisRunTool(name, args) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDateString(new Date());
 
   switch (name) {
     case 'get_summary': {
-      const income  = S.transactions.filter(t => t.type === 'Receita').reduce((a,t) => a + t.value, 0);
-      const expense = S.transactions.filter(t => t.type === 'Despesa').reduce((a,t) => a + t.value, 0);
+      const financialStart = S.transactions.map(item => item.date).filter(Boolean).sort()[0] || today;
+      const financial = financialTotals(financialEntriesBetween(financialStart, today));
       return {
         tasks: {
-          backlog:    S.tasks.filter(t => t.col === 'backlog').length,
-          today:      S.tasks.filter(t => t.col === 'today').length,
-          inprogress: S.tasks.filter(t => t.col === 'inprogress').length,
-          done:       S.tasks.filter(t => t.col === 'done').length
+          backlog:    S.tasks.filter(t => t.kind !== 'event' && t.col === 'backlog').length,
+          today:      S.tasks.filter(t => t.kind !== 'event' && t.col === 'today').length,
+          inprogress: S.tasks.filter(t => t.kind !== 'event' && t.col === 'inprogress').length,
+          done:       S.tasks.filter(t => t.kind !== 'event' && t.col === 'done').length
         },
+        recurringEvents: { total: S.tasks.filter(isRecurringEvent).length },
         projects: {
           total: S.projects.length,
           byStatus: S.projects.reduce((a,p) => { a[p.status] = (a[p.status]||0)+1; return a; }, {})
         },
         habits: { total: S.habits.length, completedToday: S.habits.filter(h => (h.completions||[]).includes(today)).length },
         goals:  { total: S.goals.length },
-        financial: { income, expense, balance: income - expense },
+        financial: { ...financial, recurring: S.transactions.filter(isRecurringTransaction).length },
         ideas:    { total: S.ideas.length },
         contacts: { total: S.contacts.length }
       };
@@ -3426,7 +3937,8 @@ async function jarvisRunTool(name, args) {
 
     case 'list_tasks': {
       const col = args.col || 'all';
-      const list = col === 'all' ? S.tasks : S.tasks.filter(t => t.col === col);
+      const tasks = S.tasks.filter(t => t.kind !== 'event');
+      const list = col === 'all' ? tasks : tasks.filter(t => t.col === col);
       return list.map(t => ({ id: t.id, title: t.title, project: t.project, priority: t.priority, due: t.due, col: t.col }));
     }
 
@@ -3452,6 +3964,57 @@ async function jarvisRunTool(name, args) {
       S.tasks = S.tasks.filter(t => t.id !== args.id);
       saveTasks();
       renderKanban();
+      return { success: S.tasks.length < before };
+    }
+
+    case 'list_recurring_events':
+      return S.tasks.filter(isRecurringEvent).map(event => ({
+        id: event.id, title: event.title, start_date: event.due, time: event.time,
+        duration: event.duration, project: event.project, recurrence: event.recurrence,
+        next_occurrence: nextEventOccurrence(event)
+      }));
+
+    case 'create_recurring_event': {
+      if (!args.title || !args.start_date || !args.time || !args.frequency) return { success: false, error: 'title, start_date, time e frequency são obrigatórios' };
+      const startDay = dateFromString(args.start_date).getDay();
+      const event = {
+        id: uid(), kind: 'event', title: args.title, due: args.start_date, time: args.time,
+        duration: Math.max(Number(args.duration) || 60, 1), project: args.project || '', priority: 'Média', col: 'calendar',
+        owner_id: currentUserId, owner_name: currentUserName,
+        recurrence: {
+          frequency: args.frequency, interval: Math.max(Number(args.interval) || 1, 1),
+          weekdays: args.frequency === 'weekly' ? (args.weekdays?.length ? args.weekdays.map(Number) : [startDay]) : [],
+          end: args.end_type || 'never', until: args.end_type === 'date' ? (args.until || '') : '',
+          count: args.end_type === 'count' ? Math.max(Number(args.count) || 1, 1) : null
+        }
+      };
+      S.tasks.unshift(event); saveTasks(); renderAgenda();
+      return { success: true, event, next_occurrence: nextEventOccurrence(event) };
+    }
+
+    case 'update_recurring_event': {
+      const event = S.tasks.find(item => item.id === args.id && isRecurringEvent(item));
+      if (!event) return { success: false, error: 'Evento recorrente não encontrado' };
+      if (args.title !== undefined) event.title = args.title;
+      if (args.start_date !== undefined) event.due = args.start_date;
+      if (args.time !== undefined) event.time = args.time;
+      if (args.duration !== undefined) event.duration = Math.max(Number(args.duration) || 1, 1);
+      if (args.project !== undefined) event.project = args.project;
+      const recurrence = event.recurrence;
+      if (args.frequency !== undefined) recurrence.frequency = args.frequency;
+      if (args.interval !== undefined) recurrence.interval = Math.max(Number(args.interval) || 1, 1);
+      if (args.weekdays !== undefined) recurrence.weekdays = args.weekdays.map(Number);
+      if (args.end_type !== undefined) recurrence.end = args.end_type;
+      if (args.until !== undefined) recurrence.until = args.until;
+      if (args.count !== undefined) recurrence.count = Math.max(Number(args.count) || 1, 1);
+      saveTasks(); renderAgenda();
+      return { success: true, event, next_occurrence: nextEventOccurrence(event) };
+    }
+
+    case 'delete_recurring_event': {
+      const before = S.tasks.length;
+      S.tasks = S.tasks.filter(item => !(item.id === args.id && isRecurringEvent(item)));
+      saveTasks(); renderAgenda();
       return { success: S.tasks.length < before };
     }
 
@@ -3569,7 +4132,14 @@ async function jarvisRunTool(name, args) {
     }
 
     case 'add_transaction': {
-      const tx = { id: uid(), type: args.type, desc: args.desc, value: args.value, project: args.project||'', date: args.date||today };
+      if (!args.type || !args.desc || !Number(args.value) || Number(args.value) <= 0) return { success: false, error: 'type, desc e value positivo são obrigatórios' };
+      const tx = { id: uid(), type: args.type, desc: args.desc, value: Number(args.value), project: args.project||'', date: args.date||today, owner_id: currentUserId, owner_name: currentUserName };
+      if (args.recurring) {
+        const recurrenceError = validateFinancialRecurrenceArgs(args, tx.date);
+        if (recurrenceError) return { success: false, error: recurrenceError };
+        tx.kind = 'recurring';
+        tx.recurrence = { frequency: args.frequency || 'monthly', interval: Math.max(Number(args.interval) || 1, 1), end: args.end_type || 'never', until: args.end_type === 'date' ? (args.until || '') : '' };
+      }
       S.transactions.push(tx);
       saveTransactions();
       renderFinancial();
@@ -3581,7 +4151,43 @@ async function jarvisRunTool(name, args) {
       return [...S.transactions]
         .sort((a,b) => (b.date || '').localeCompare(a.date || ''))
         .slice(0, limit)
-        .map(t => ({ id: t.id, type: t.type, desc: t.desc, value: t.value, project: t.project, date: t.date }));
+        .map(t => ({ id: t.id, type: t.type, desc: t.desc, value: t.value, project: t.project, date: t.date, recurring: isRecurringTransaction(t), recurrence: t.recurrence || null }));
+    }
+
+    case 'update_transaction': {
+      const transaction = S.transactions.find(item => item.id === args.id);
+      if (!transaction) return { success: false, error: 'Lançamento não encontrado' };
+      if (args.value !== undefined && (!Number(args.value) || Number(args.value) <= 0)) return { success: false, error: 'value deve ser positivo' };
+      ['type','desc','project','date'].forEach(field => { if (args[field] !== undefined) transaction[field] = args[field]; });
+      if (args.value !== undefined) transaction.value = Number(args.value);
+      if (args.recurring === false) { delete transaction.kind; delete transaction.recurrence; }
+      else if (args.recurring === true || isRecurringTransaction(transaction)) {
+        const recurrenceError = validateFinancialRecurrenceArgs({ frequency: args.frequency || transaction.recurrence?.frequency, end_type: args.end_type || transaction.recurrence?.end, until: args.until ?? transaction.recurrence?.until }, args.date || transaction.date);
+        if (recurrenceError) return { success: false, error: recurrenceError };
+        transaction.kind = 'recurring';
+        transaction.recurrence ||= { frequency: 'monthly', interval: 1, end: 'never', until: '' };
+        if (args.frequency !== undefined) transaction.recurrence.frequency = args.frequency;
+        if (args.interval !== undefined) transaction.recurrence.interval = Math.max(Number(args.interval) || 1, 1);
+        if (args.end_type !== undefined) transaction.recurrence.end = args.end_type;
+        if (args.until !== undefined) transaction.recurrence.until = args.until;
+      }
+      saveTransactions(); renderFinancial();
+      return { success: true, transaction };
+    }
+
+    case 'delete_transaction': {
+      const before = S.transactions.length;
+      S.transactions = S.transactions.filter(transaction => transaction.id !== args.id);
+      saveTransactions(); renderFinancial();
+      return { success: S.transactions.length < before };
+    }
+
+    case 'get_financial_forecast': {
+      const months = Math.min(Math.max(Number(args.months) || 6, 1), 24);
+      return Array.from({ length: months }, (_, offset) => {
+        const range = financialMonthRange(offset);
+        return { month: range.start.slice(0, 7), ...financialTotals(financialEntriesBetween(range.start, range.end)) };
+      });
     }
 
     case 'search_code_assets': {
@@ -3656,15 +4262,17 @@ function jarvisBuildHubSnapshot() {
     .slice(0, 5)
     .map(p => `${p.name} (${p.status}, ${p.progress || 0}%)`);
   const priorityTasks = S.tasks
-    .filter(t => t.priority === 'Alta' && t.col !== 'done')
+    .filter(t => t.kind !== 'event' && t.priority === 'Alta' && t.col !== 'done')
     .slice(0, 6)
     .map(t => `${t.title}${t.project ? ` - ${t.project}` : ''}`);
   const openFollowUps = S.contacts
     .filter(c => c.nextStep)
     .slice(0, 5)
     .map(c => `${c.name}: ${c.nextStep}`);
-  const income = S.transactions.filter(t => t.type === 'Receita').reduce((sum, t) => sum + (+t.value || 0), 0);
-  const expense = S.transactions.filter(t => t.type === 'Despesa').reduce((sum, t) => sum + (+t.value || 0), 0);
+  const financialToday = localDateString(new Date());
+  const financialStart = S.transactions.map(item => item.date).filter(Boolean).sort()[0] || financialToday;
+  const financialRealized = financialTotals(financialEntriesBetween(financialStart, financialToday));
+  const financialNext30 = financialTotals(financialEntriesBetween(addCalendarDays(financialToday, 1), addCalendarDays(financialToday, 30)));
   const rhythm = getProjectRhythm();
   const timeSummary = getProjectTimeSummary(rhythm);
   const timeByProject = Object.entries(timeSummary.byProject)
@@ -3674,9 +4282,10 @@ function jarvisBuildHubSnapshot() {
 
   return [
     `Projetos: ${S.projects.length}. Ativos: ${activeProjects.join('; ') || 'nenhum'}.`,
-    `Tarefas abertas: ${S.tasks.filter(t => t.col !== 'done').length}. Prioridades: ${priorityTasks.join('; ') || 'nenhuma'}.`,
+    `Tarefas abertas: ${S.tasks.filter(t => t.kind !== 'event' && t.col !== 'done').length}. Prioridades: ${priorityTasks.join('; ') || 'nenhuma'}.`,
+    `Eventos recorrentes: ${S.tasks.filter(isRecurringEvent).map(event => `${event.title} (${recurrenceLabel(event)}, ${event.time || 'sem horário'})`).join('; ') || 'nenhum'}.`,
     `Ideias: ${S.ideas.length}. CRM: ${S.contacts.length} contatos. Follow-ups: ${openFollowUps.join('; ') || 'nenhum'}.`,
-    `Financeiro: entradas ${fmtCurrency(income)}, saidas ${fmtCurrency(expense)}, saldo ${fmtCurrency(income - expense)}.`,
+    `Financeiro realizado: entradas ${fmtCurrency(financialRealized.income)}, saidas ${fmtCurrency(financialRealized.expense)}, saldo ${fmtCurrency(financialRealized.balance)}. Recorrencias: ${S.transactions.filter(isRecurringTransaction).length}. Fluxo previsto em 30 dias: ${fmtCurrency(financialNext30.balance)}.`,
     `Ritmo dos projetos hoje: ${timeByProject || 'nenhum tempo registrado'}. Projeto atual: ${rhythm.timer?.project || rhythm.activeProject || 'nenhum'}.`,
     `Notas: ${S.notes.filter(n => n.type === 'note').length}. Secao atual: ${sectionMeta[S.section]?.label || S.section}.`
   ].join('\n');
@@ -3703,6 +4312,8 @@ Quando o usuario pedir opiniao ou tiver duvida geral:
 
 Uso de ferramentas:
 - Use ferramentas quando o usuario pedir para criar, mover, atualizar, excluir, listar ou consultar dados do Motion Hub.
+- Gerencie compromissos que se repetem com as ferramentas de eventos recorrentes. Interprete dias da semana como 0=domingo, 1=segunda, ... 6=sabado e use a data inicial mais proxima coerente com o pedido.
+- No financeiro, diferencie valores realizados de projeções. Use recurring=true para receitas ou despesas que se repetem e get_financial_forecast para analisar os próximos meses. Você pode criar, listar, atualizar e excluir lançamentos.
 - Use web_search quando a pergunta depender de informacao atual, mercado, concorrentes, noticias, precos, tendencias, ferramentas recentes, leis, dados externos ou validacao de uma ideia no mundo real.
 - Ao usar web_search, cite as fontes principais com links no fim da resposta e deixe claro quando algo for inferencia sua.
 - Para perguntas gerais, nao use ferramentas sem necessidade.

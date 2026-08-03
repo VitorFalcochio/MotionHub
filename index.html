@@ -2,9 +2,15 @@
 <html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content">
+  <meta name="theme-color" content="#080A0F">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Motion Hub">
   <title>Motion Hub</title>
   <link rel="icon" type="image/png" href="4.png">
+  <link rel="apple-touch-icon" href="4.png">
+  <link rel="manifest" href="manifest.webmanifest">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
@@ -126,6 +132,7 @@
       </div>
     </div>
   </aside>
+  <button class="mobile-nav-backdrop" id="mobileNavBackdrop" type="button" aria-label="Fechar menu"></button>
 
   <!-- Main Wrapper -->
   <div class="main-wrapper">
@@ -147,6 +154,7 @@
         </div>
       </div>
       <div class="header-right">
+        <button class="btn-icon mobile-search-toggle" id="mobileSearchBtn" type="button" aria-label="Buscar"><i class='bx bx-search'></i></button>
         <div class="notif-wrap" id="notifWrap">
           <button class="btn-icon notif-btn" id="notifBtn">
             <i class='bx bx-bell'></i>
@@ -282,6 +290,8 @@
       <!-- ==================== FINANCIAL ==================== -->
       <section class="page" id="section-financial">
         <div class="metrics-grid" id="financialMetrics"></div>
+        <div id="financialForecast"></div>
+        <div id="recurringTransactions"></div>
         <div class="panel" style="margin-top:24px">
           <div class="panel-head">
             <h3 class="panel-title">Lançamentos</h3>
@@ -462,6 +472,14 @@
 
     </main>
   </div>
+
+  <nav class="mobile-tabbar" id="mobileTabbar" aria-label="Navegação principal">
+    <button class="mobile-tab active" type="button" data-section="dashboard"><i class='bx bxs-dashboard'></i><span>Início</span></button>
+    <button class="mobile-tab" type="button" data-section="tasks"><i class='bx bx-check-square'></i><span>Tarefas</span></button>
+    <button class="mobile-tab" type="button" data-section="agenda"><i class='bx bx-calendar'></i><span>Agenda</span></button>
+    <button class="mobile-tab" type="button" data-section="financial"><i class='bx bx-wallet'></i><span>Finanças</span></button>
+    <button class="mobile-tab" id="mobileMoreBtn" type="button"><i class='bx bx-grid-alt'></i><span>Mais</span></button>
+  </nav>
 </div>
 
 <!-- Modal -->
