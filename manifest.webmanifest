@@ -1,0 +1,18 @@
+{
+  "name": "Motion Hub",
+  "short_name": "Motion",
+  "description": "Workspace pessoal para projetos, tarefas, agenda, finanças e Jarvis.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#080A0F",
+  "theme_color": "#080A0F",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "4.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

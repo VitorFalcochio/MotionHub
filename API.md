@@ -79,6 +79,10 @@ Content-Type: application/json
 - `create_task`
 - `update_task`
 - `delete_task`
+- `list_recurring_events`
+- `create_recurring_event`
+- `update_recurring_event`
+- `delete_recurring_event`
 - `list_projects`
 - `create_project`
 - `list_habits`
@@ -87,9 +91,55 @@ Content-Type: application/json
 - `create_idea`
 - `list_contacts`
 - `add_transaction`
+- `list_transactions`
+- `update_transaction`
+- `delete_transaction`
+- `get_financial_forecast`
 - `list_notes`
 - `search_notes`
 - `read_note`
 - `create_note`
+
+### Exemplo: reunião recorrente
+
+```http
+POST /api/tools/create_recurring_event
+Authorization: Bearer <HUB_API_TOKEN>
+Content-Type: application/json
+
+{
+  "title": "Reunião semanal",
+  "start_date": "2026-08-03",
+  "time": "10:00",
+  "duration": 60,
+  "frequency": "weekly",
+  "weekdays": [1],
+  "end_type": "never"
+}
+```
+
+Em `weekdays`, use `0` para domingo, `1` para segunda-feira e assim por diante até `6` para sábado.
+
+### Exemplo: despesa financeira recorrente
+
+```http
+POST /api/tools/add_transaction
+Authorization: Bearer <HUB_API_TOKEN>
+Content-Type: application/json
+
+{
+  "type": "Despesa",
+  "desc": "Hospedagem mensal",
+  "value": 180,
+  "project": "Motion Hub",
+  "date": "2026-08-10",
+  "recurring": true,
+  "frequency": "monthly",
+  "interval": 1,
+  "end_type": "never"
+}
+```
+
+Para consultar a projeção que considera os lançamentos recorrentes, use `POST /api/tools/get_financial_forecast` com `{ "months": 6 }`.
 
 Também existe `GET /api/data` para ler o estado bruto do Hub.

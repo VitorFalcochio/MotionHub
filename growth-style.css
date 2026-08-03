@@ -653,3 +653,58 @@ button { cursor: pointer; border: 0; }
   .gh-form-grid { grid-template-columns: 1fr; }
   .gh-chart { height: 220px; padding: 18px 12px; }
 }
+
+@media (max-width: 680px) {
+  body { min-width: 0; min-height: 100dvh; padding-bottom: calc(66px + env(safe-area-inset-bottom)); overscroll-behavior-y: contain; }
+  button, a { -webkit-tap-highlight-color: transparent; }
+  input, textarea, select { font-size: 16px !important; }
+  .gh-sidebar {
+    position: fixed;
+    z-index: 100;
+    inset: auto 0 0;
+    width: 100%;
+    height: calc(66px + env(safe-area-inset-bottom));
+    min-height: 0;
+    padding: 5px 4px env(safe-area-inset-bottom);
+    display: block;
+    background: rgba(5,7,12,.95);
+    border: 0;
+    border-top: 1px solid var(--line2);
+    backdrop-filter: blur(18px);
+  }
+  .gh-back { position: fixed; z-index: 110; top: max(10px, env(safe-area-inset-top)); left: 10px; width: 42px; height: 42px; margin: 0; background: var(--surface); }
+  .gh-mark { display: none; }
+  .gh-nav { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(62px, 1fr); gap: 2px; overflow-x: auto; scrollbar-width: none; }
+  .gh-nav::-webkit-scrollbar { display: none; }
+  .gh-nav button { height: 56px; min-width: 0; flex-direction: column; justify-content: center; gap: 2px; padding: 3px; border-radius: 11px; font-size: 9px; text-align: center; }
+  .gh-nav button i { font-size: 20px; }
+  .gh-app { width: 100%; min-width: 0; padding: calc(18px + env(safe-area-inset-top)) 12px 24px; }
+  .gh-header { padding-left: 50px; gap: 14px; margin-bottom: 16px; }
+  .gh-header h1 { font-size: 23px; }
+  .gh-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .gh-controls .gh-primary { grid-column: 1 / -1; min-height: 44px; }
+  .gh-select { min-width: 0; min-height: 44px; }
+  .gh-command { padding: 16px; margin-bottom: 16px; }
+  .gh-integrations { display: flex; overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; }
+  .gh-integrations span { flex-shrink: 0; }
+  .gh-metrics { grid-template-columns: repeat(2, minmax(0,1fr)); gap: 9px; }
+  .gh-metric { min-width: 0; padding: 14px 12px; }
+  .gh-metric strong { font-size: 20px; overflow-wrap: anywhere; }
+  .gh-section-head { align-items: stretch; flex-direction: column; gap: 12px; }
+  .gh-section-head .gh-primary { min-height: 44px; }
+  .gh-card-grid { grid-template-columns: 1fr; }
+  .gh-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .gh-table { min-width: 720px; }
+  .gh-leads-board { display: flex; width: calc(100vw - 24px); overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; }
+  .gh-lead-column { flex: 0 0 calc(100vw - 44px); scroll-snap-align: center; }
+  .gh-modal-overlay { align-items: flex-end; padding: 0; }
+  .gh-modal { width: 100%; max-height: calc(94dvh - env(safe-area-inset-top)); border-radius: 20px 20px 0 0; border-bottom: 0; }
+  .gh-modal-head, .gh-modal-body { padding-left: 16px; padding-right: 16px; }
+  .gh-modal-foot { padding: 12px 16px calc(12px + env(safe-area-inset-bottom)); }
+  .gh-modal-foot button { flex: 1; min-height: 44px; }
+  .gh-toast { left: 10px; right: 10px; bottom: calc(72px + env(safe-area-inset-bottom)); text-align: center; }
+}
+
+@media (max-width: 360px) {
+  .gh-metrics { grid-template-columns: 1fr; }
+}
