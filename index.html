@@ -242,38 +242,22 @@
 
       <!-- ==================== TASKS ==================== -->
       <section class="page" id="section-tasks">
-        <div class="kanban" id="kanban">
-          <div class="k-col">
-            <div class="k-head">
-              <div class="k-label"><span class="k-dot gray"></span>Backlog</div>
-              <span class="k-count" id="ct-backlog">0</span>
+        <div class="task-summary" id="taskSummary"></div>
+        <div class="task-list-panel">
+          <div class="task-list-toolbar">
+            <div class="task-list-filters" id="taskListFilters">
+              <button class="task-filter active" type="button" data-filter="all">Todas <span id="ct-all">0</span></button>
+              <button class="task-filter" type="button" data-filter="backlog">Backlog <span id="ct-backlog">0</span></button>
+              <button class="task-filter" type="button" data-filter="today">Hoje <span id="ct-today">0</span></button>
+              <button class="task-filter" type="button" data-filter="inprogress">Em andamento <span id="ct-inprogress">0</span></button>
+              <button class="task-filter" type="button" data-filter="done">Concluídas <span id="ct-done">0</span></button>
             </div>
-            <div class="k-cards" id="col-backlog"></div>
-            <button class="k-add" data-col="backlog"><i class='bx bx-plus'></i> Tarefa</button>
+            <button class="task-inline-add" type="button" onclick="newTask()"><i class='bx bx-plus'></i> Adicionar tarefa</button>
           </div>
-          <div class="k-col">
-            <div class="k-head">
-              <div class="k-label"><span class="k-dot blue"></span>Hoje</div>
-              <span class="k-count" id="ct-today">0</span>
-            </div>
-            <div class="k-cards" id="col-today"></div>
-            <button class="k-add" data-col="today"><i class='bx bx-plus'></i> Tarefa</button>
+          <div class="task-list-head" aria-hidden="true">
+            <span>Tarefa</span><span>Projeto</span><span>Prazo</span><span>Prioridade</span><span>Status</span><span></span>
           </div>
-          <div class="k-col">
-            <div class="k-head">
-              <div class="k-label"><span class="k-dot amber"></span>Em andamento</div>
-              <span class="k-count" id="ct-inprogress">0</span>
-            </div>
-            <div class="k-cards" id="col-inprogress"></div>
-            <button class="k-add" data-col="inprogress"><i class='bx bx-plus'></i> Tarefa</button>
-          </div>
-          <div class="k-col">
-            <div class="k-head">
-              <div class="k-label"><span class="k-dot green"></span>Concluído</div>
-              <span class="k-count" id="ct-done">0</span>
-            </div>
-            <div class="k-cards" id="col-done"></div>
-          </div>
+          <div class="task-list" id="taskList"></div>
         </div>
       </section>
 
