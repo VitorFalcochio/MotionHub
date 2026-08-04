@@ -36,6 +36,16 @@ const PROJECT_RHYTHM_KEY = 'motion_project_rhythm_v1';
 const ACCESS_PASSWORD = '@Vitor0911071234';
 const ACCESS_SESSION_KEY = 'motion_hub_access_ok_v1';
 const DATA_FIELDS = ['projects', 'tasks', 'ideas', 'contacts', 'transactions', 'docs', 'habits', 'goals', 'reviews', 'notes', 'inbox', 'dailyPlans'];
+const BACKUP_FORMAT = 'motion-hub-backup';
+const BACKUP_VERSION = 1;
+const BACKUP_SAFETY_KEY = 'motion_hub_safety_backup_v1';
+const BACKUP_MAX_BYTES = 20 * 1024 * 1024;
+const BACKUP_STORES = [
+  { key: STORAGE_KEY, label: 'Motion Hub', icon: 'bx-grid-alt', required: true },
+  { key: PROJECT_RHYTHM_KEY, label: 'Ritmo dos projetos', icon: 'bx-timer' },
+  { key: 'growth_hub_data_v2', label: 'Growth Hub', icon: 'bx-line-chart' },
+  { key: 'motion_code_assets_library_v1', label: 'Code Assets', icon: 'bx-code-curly' }
+];
 let currentUserId   = 'vitor';
 let currentUserName = 'Vitor';
 let currentUserColor = '#6366f1';
@@ -104,6 +114,247 @@ function saveReviews()      { syncData({ reviews:      S.reviews }); }
 function saveNotes()        { syncData({ notes:        S.notes }); }
 function saveInbox()        { syncData({ inbox:        S.inbox }); }
 function saveDailyPlans()   { syncData({ dailyPlans:   S.dailyPlans }); }
+
+/* ===== BACKUP & RESTORE ===== */
+function backupSafeClone(value) {
+  if (Array.isArray(value)) return value.map(backupSafeClone);
+  if (!value || typeof value !== 'object') return value;
+  const clean = {};
+  Object.keys(value).forEach(key => {
+    if (key === '__proto__' || key === 'prototype' || key === 'constructor') return;
+    clean[key] = backupSafeClone(value[key]);
+  });
+  return clean;
+}
+
+function collectBackupStores() {
+  const stores = {};
+  BACKUP_STORES.forEach(store => {
+    const value = readStore(store.key, undefined);
+    if (value !== undefined) stores[store.key] = backupSafeClone(value);
+  });
+  return stores;
+}
+
+function backupCounts(mainData = {}) {
+  return DATA_FIELDS.reduce((counts, field) => {
+    counts[field] = Array.isArray(mainData[field]) ? mainData[field].length : 0;
+    return counts;
+  }, {});
+}
+
+function createBackupDocument(reason = 'manual') {
+  const stores = collectBackupStores();
+  return {
+    format: BACKUP_FORMAT,
+    version: BACKUP_VERSION,
+    createdAt: new Date().toISOString(),
+    reason,
+    app: { name: 'Motion Hub', storage: 'local' },
+    summary: backupCounts(stores[STORAGE_KEY]),
+    stores
+  };
+}
+
+function backupFilename(date = new Date()) {
+  const stamp = date.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  return `motion-hub-backup-${stamp}.json`;
+}
+
+function downloadJson(documentData, filename = backupFilename()) {
+  const blob = new Blob([JSON.stringify(documentData, null, 2)], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function exportMotionBackup() {
+  const backup = createBackupDocument('manual-export');
+  downloadJson(backup);
+  toast('Backup completo baixado com sucesso.');
+  renderBackupPage();
+}
+
+function validateBackupDocument(candidate) {
+  if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) throw new Error('O arquivo não contém um backup válido.');
+  if (candidate.format !== BACKUP_FORMAT) throw new Error('Este JSON não foi gerado pelo Motion Hub.');
+  if (!Number.isInteger(candidate.version) || candidate.version < 1) throw new Error('A versão do backup é inválida.');
+  if (candidate.version > BACKUP_VERSION) throw new Error('Este backup foi criado por uma versão mais nova do Motion Hub.');
+  if (!candidate.stores || typeof candidate.stores !== 'object' || Array.isArray(candidate.stores)) throw new Error('O backup não possui dados restauráveis.');
+  const main = candidate.stores[STORAGE_KEY];
+  if (!main || typeof main !== 'object' || Array.isArray(main)) throw new Error('Os dados principais do Motion Hub não foram encontrados.');
+  const stores = {};
+  BACKUP_STORES.forEach(store => {
+    if (!Object.prototype.hasOwnProperty.call(candidate.stores, store.key)) return;
+    const value = candidate.stores[store.key];
+    if (value === null || typeof value !== 'object') throw new Error(`A área “${store.label}” está corrompida.`);
+    stores[store.key] = backupSafeClone(value);
+  });
+  return { ...backupSafeClone(candidate), stores };
+}
+
+function backupIdentity(item) {
+  if (!item || typeof item !== 'object') return null;
+  const fields = ['id', 'key', 'name', 'title', 'objective', 'phone'];
+  const field = fields.find(candidate => item[candidate] !== undefined && item[candidate] !== '');
+  return field ? `${field}:${String(item[field])}` : null;
+}
+
+function mergeBackupValue(current, imported) {
+  if (Array.isArray(current) && Array.isArray(imported)) {
+    const result = current.map(backupSafeClone);
+    imported.forEach(item => {
+      if (item === null || typeof item !== 'object') {
+        if (!result.some(existing => Object.is(existing, item))) result.push(item);
+        return;
+      }
+      const identity = backupIdentity(item);
+      const index = identity ? result.findIndex(existing => backupIdentity(existing) === identity) : -1;
+      if (index >= 0) result[index] = mergeBackupValue(result[index], item);
+      else result.push(backupSafeClone(item));
+    });
+    return result;
+  }
+  if (current && imported && typeof current === 'object' && typeof imported === 'object' && !Array.isArray(current) && !Array.isArray(imported)) {
+    const merged = backupSafeClone(current);
+    Object.keys(imported).forEach(key => {
+      if (key === '__proto__' || key === 'prototype' || key === 'constructor') return;
+      merged[key] = Object.prototype.hasOwnProperty.call(merged, key)
+        ? mergeBackupValue(merged[key], imported[key])
+        : backupSafeClone(imported[key]);
+    });
+    return merged;
+  }
+  return backupSafeClone(imported);
+}
+
+function saveSafetyBackup() {
+  const snapshot = createBackupDocument('automatic-before-import');
+  writeStore(BACKUP_SAFETY_KEY, snapshot);
+  return snapshot;
+}
+
+function applyBackupDocument(backup, mode = 'merge', { createSafety = true } = {}) {
+  const validated = validateBackupDocument(backup);
+  if (createSafety) saveSafetyBackup();
+
+  if (mode === 'replace') {
+    BACKUP_STORES.forEach(store => localStorage.removeItem(store.key));
+    Object.entries(validated.stores).forEach(([key, value]) => writeStore(key, value));
+  } else {
+    Object.entries(validated.stores).forEach(([key, imported]) => {
+      const current = readStore(key, {});
+      writeStore(key, mergeBackupValue(current, imported));
+    });
+  }
+}
+
+function backupSummaryRows(backup) {
+  const counts = backupCounts(backup.stores[STORAGE_KEY]);
+  const fields = [
+    ['projects', 'Projetos'], ['tasks', 'Tarefas'], ['inbox', 'Caixa de entrada'],
+    ['habits', 'Hábitos'], ['goals', 'Metas'], ['notes', 'Notas'],
+    ['transactions', 'Lançamentos'], ['contacts', 'Contatos']
+  ];
+  return fields.map(([key, label]) => `<div class="backup-preview-stat"><strong>${counts[key] || 0}</strong><span>${label}</span></div>`).join('');
+}
+
+function openBackupPreview(backup, fileName = 'backup.json') {
+  const created = new Date(backup.createdAt);
+  const validDate = !Number.isNaN(created.getTime());
+  const included = BACKUP_STORES.filter(store => Object.prototype.hasOwnProperty.call(backup.stores, store.key));
+  openModal('Prévia da importação', `
+    <div class="backup-preview-head">
+      <div class="backup-preview-file"><i class='bx bx-file'></i><div><strong>${escHtml(fileName)}</strong><span>${validDate ? created.toLocaleString('pt-BR') : 'Data não informada'} · versão ${backup.version}</span></div></div>
+      <span class="badge badge-green"><i class='bx bx-check-shield'></i> Validado</span>
+    </div>
+    <div class="backup-preview-stats">${backupSummaryRows(backup)}</div>
+    <div class="backup-preview-areas">${included.map(store => `<span><i class='bx ${store.icon}'></i>${store.label}</span>`).join('')}</div>
+    <div class="backup-mode-title">Como deseja restaurar?</div>
+    <label class="backup-mode-option selected">
+      <input type="radio" name="backup-mode" value="merge" checked>
+      <i class='bx bx-git-merge'></i>
+      <span><strong>Mesclar dados</strong><small>Mantém o que já existe e adiciona ou atualiza itens do backup.</small></span>
+    </label>
+    <label class="backup-mode-option danger-option">
+      <input type="radio" name="backup-mode" value="replace">
+      <i class='bx bx-refresh'></i>
+      <span><strong>Substituir tudo</strong><small>Restaura exatamente o backup. Uma cópia de segurança será criada antes.</small></span>
+    </label>
+  `, () => {
+    const mode = document.querySelector('input[name="backup-mode"]:checked')?.value || 'merge';
+    applyBackupDocument(backup, mode);
+    toast(mode === 'replace' ? 'Backup restaurado. Recarregando…' : 'Dados mesclados. Recarregando…');
+    setTimeout(() => window.location.reload(), 700);
+    return true;
+  });
+  document.getElementById('modalSave').innerHTML = `<i class='bx bx-import'></i> Importar backup`;
+  document.querySelectorAll('.backup-mode-option').forEach(option => {
+    option.addEventListener('click', () => {
+      document.querySelectorAll('.backup-mode-option').forEach(item => item.classList.remove('selected'));
+      option.classList.add('selected');
+    });
+  });
+}
+
+async function importMotionBackupFile(file) {
+  if (!file) return;
+  if (file.size > BACKUP_MAX_BYTES) throw new Error('O arquivo é maior que o limite de 20 MB.');
+  const text = await file.text();
+  let parsed;
+  try { parsed = JSON.parse(text); }
+  catch { throw new Error('Não foi possível ler o JSON. Verifique se o arquivo não está corrompido.'); }
+  const backup = validateBackupDocument(parsed);
+  openBackupPreview(backup, file.name);
+}
+
+function restoreSafetyBackup() {
+  const safety = readStore(BACKUP_SAFETY_KEY, null);
+  if (!safety) return toast('Nenhuma cópia de segurança disponível.', 'info');
+  openModal('Desfazer última importação', `
+    <div class="backup-restore-warning"><i class='bx bx-history'></i><div><strong>Voltar ao estado anterior?</strong><p>Os dados atuais serão substituídos pela cópia criada antes da última importação.</p></div></div>
+  `, () => {
+    applyBackupDocument(safety, 'replace', { createSafety: false });
+    toast('Estado anterior restaurado. Recarregando…');
+    setTimeout(() => window.location.reload(), 700);
+    return true;
+  });
+  document.getElementById('modalSave').innerHTML = `<i class='bx bx-undo'></i> Restaurar estado anterior`;
+}
+
+function renderBackupPage() {
+  const scope = document.getElementById('backupScopeList');
+  if (!scope) return;
+  const stores = collectBackupStores();
+  scope.innerHTML = BACKUP_STORES.map(store => {
+    const available = Object.prototype.hasOwnProperty.call(stores, store.key);
+    return `<div class="backup-scope-item"><i class='bx ${store.icon}'></i><div><strong>${store.label}</strong><span>${available ? 'Incluído na exportação' : 'Será incluído quando houver dados'}</span></div><i class='bx ${available ? 'bx-check-circle included' : 'bx-minus-circle'}'></i></div>`;
+  }).join('') + `<div class="backup-scope-item secure"><i class='bx bx-key'></i><div><strong>Credenciais protegidas</strong><span>Chave Groq, senha e sessão nunca são exportadas</span></div><i class='bx bx-shield-quarter included'></i></div>`;
+
+  const safety = readStore(BACKUP_SAFETY_KEY, null);
+  const safetyBox = document.getElementById('backupSafetyStatus');
+  if (!safety) {
+    safetyBox.innerHTML = `<div class="backup-empty-safety"><i class='bx bx-check-circle'></i><strong>Tudo tranquilo</strong><span>A primeira cópia será criada automaticamente antes de uma importação.</span></div>`;
+    return;
+  }
+  const date = new Date(safety.createdAt);
+  safetyBox.innerHTML = `<div class="backup-safety-available"><div><span>Último estado protegido</span><strong>${Number.isNaN(date.getTime()) ? 'Data não informada' : date.toLocaleString('pt-BR')}</strong></div><button class="btn-ghost" type="button" onclick="restoreSafetyBackup()"><i class='bx bx-undo'></i> Desfazer importação</button></div>`;
+}
+
+function initBackup() {
+  document.getElementById('backupExportBtn')?.addEventListener('click', exportMotionBackup);
+  document.getElementById('backupImportBtn')?.addEventListener('click', () => document.getElementById('backupFileInput')?.click());
+  document.getElementById('backupFileInput')?.addEventListener('change', async event => {
+    try { await importMotionBackupFile(event.target.files?.[0]); }
+    catch (error) { toast(error.message || 'Não foi possível importar o backup.', 'error'); }
+    finally { event.target.value = ''; }
+  });
+}
 
 /* ===== IDs ===== */
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
@@ -255,10 +506,11 @@ const sectionMeta = {
   financial:  { label: 'Financeiro',        btnLabel: 'Novo Lançamento' },
   review:     { label: 'Revisão Semanal',   btnLabel: 'Nova Revisão' },
   prompts:    { label: 'Prompts & Docs',    btnLabel: 'Novo Documento' },
-  notes:      { label: 'Notas',             btnLabel: null }
+  notes:      { label: 'Notas',             btnLabel: null },
+  backup:     { label: 'Backup & Dados',    btnLabel: null }
 };
 
-const sectionOrder = ['dashboard', 'projects', 'tasks', 'habits', 'agenda', 'jarvis', 'ideas', 'goals', 'crm', 'financial', 'review', 'prompts', 'notes'];
+const sectionOrder = ['dashboard', 'projects', 'tasks', 'habits', 'agenda', 'jarvis', 'ideas', 'goals', 'crm', 'financial', 'review', 'prompts', 'notes', 'backup'];
 
 function navigateTo(section, direction = null) {
   const contentArea = document.querySelector('.content-area');
@@ -353,6 +605,7 @@ function renderSection(section) {
   else if (section === 'review') renderReview();
   else if (section === 'prompts') renderPrompts();
   else if (section === 'notes') renderNotesTree();
+  else if (section === 'backup') renderBackupPage();
 }
 
 /* ===== TOAST ===== */
@@ -3162,6 +3415,7 @@ async function startApp() {
   seedV2(existingData);
   seedNotes(existingData);
   bindEvents();
+  initBackup();
   initJarvis();
   initNotes();
   if (!projectRhythmInterval) {
@@ -3187,6 +3441,7 @@ const COMMAND_CENTER_ACTIONS = [
   { id: 'new-note', title: 'Criar nota rápida', sub: 'Capturar diretamente como nota', icon: 'bx-note', keywords: 'nota criar escrever' },
   { id: 'new-idea', title: 'Registrar uma ideia', sub: 'Capturar diretamente como ideia', icon: 'bx-bulb', keywords: 'ideia criar registrar' },
   { id: 'new-transaction', title: 'Registrar lançamento financeiro', sub: 'Adicionar uma receita ou despesa', icon: 'bx-dollar-circle', keywords: 'financeiro gasto despesa receita transacao' },
+  { id: 'go-backup', title: 'Exportar ou importar backup', sub: 'Levar seus dados para outro dispositivo', icon: 'bx-cloud-download', keywords: 'backup exportar importar json restaurar whatsapp' },
   { id: 'go-tasks', title: 'Ir para Tarefas', sub: 'Abrir sua lista de tarefas', icon: 'bx-list-check', keywords: 'navegar tarefas lista' },
   { id: 'go-agenda', title: 'Ir para Agenda', sub: 'Abrir calendário e recorrências', icon: 'bx-calendar', keywords: 'navegar agenda calendario' }
 ];
@@ -3209,6 +3464,7 @@ function runCommand(command) {
     'new-note': () => openInboxCapture('note'),
     'new-idea': () => openInboxCapture('idea'),
     'new-transaction': () => newTransaction(),
+    'go-backup': () => navigateTo('backup'),
     'go-tasks': () => navigateTo('tasks'),
     'go-agenda': () => navigateTo('agenda')
   };
