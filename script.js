@@ -15,6 +15,8 @@ const S = {
   goals: [],
   reviews: [],
   notes: [],
+  inbox: [],
+  dailyPlans: [],
   profiles: {},
   modalSave: null,
   confirmOk: null,
@@ -33,7 +35,7 @@ const STORAGE_KEY = 'motion_hub_data_v1';
 const PROJECT_RHYTHM_KEY = 'motion_project_rhythm_v1';
 const ACCESS_PASSWORD = '@Vitor0911071234';
 const ACCESS_SESSION_KEY = 'motion_hub_access_ok_v1';
-const DATA_FIELDS = ['projects', 'tasks', 'ideas', 'contacts', 'transactions', 'docs', 'habits', 'goals', 'reviews', 'notes'];
+const DATA_FIELDS = ['projects', 'tasks', 'ideas', 'contacts', 'transactions', 'docs', 'habits', 'goals', 'reviews', 'notes', 'inbox', 'dailyPlans'];
 let currentUserId   = 'vitor';
 let currentUserName = 'Vitor';
 let currentUserColor = '#6366f1';
@@ -100,6 +102,8 @@ function saveHabits()       { syncData({ habits:       S.habits }); }
 function saveGoals()        { syncData({ goals:        S.goals }); }
 function saveReviews()      { syncData({ reviews:      S.reviews }); }
 function saveNotes()        { syncData({ notes:        S.notes }); }
+function saveInbox()        { syncData({ inbox:        S.inbox }); }
+function saveDailyPlans()   { syncData({ dailyPlans:   S.dailyPlans }); }
 
 /* ===== IDs ===== */
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
@@ -763,6 +767,190 @@ function renderProjectRhythm() {
   `;
 }
 
+/* ===== UNIVERSAL INBOX ===== */
+function captureTitle(text) {
+  return String(text || '').split(/\r?\n/).map(line => line.trim()).find(Boolean) || 'Sem título';
+}
+
+function openInboxCapture(defaultKind = 'inbox') {
+  globalSearchClose();
+  openModal('Captura rápida', `
+    <div class="capture-intro">
+      <span class="capture-intro-icon"><i class='bx bx-edit-alt'></i></span>
+      <div><strong>Tire isso da cabeça.</strong><p>Registre agora e decida o destino quando estiver pronto.</p></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">O que você quer registrar?</label>
+      <textarea class="form-textarea capture-textarea" id="f-capture-text" rows="5" placeholder="Uma tarefa, ideia, lembrete, anotação..."></textarea>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Destino</label>
+        <select class="form-select" id="f-capture-kind">
+          <option value="inbox"${defaultKind==='inbox'?' selected':''}>Caixa de entrada</option>
+          <option value="task"${defaultKind==='task'?' selected':''}>Tarefa</option>
+          <option value="note"${defaultKind==='note'?' selected':''}>Nota</option>
+          <option value="idea"${defaultKind==='idea'?' selected':''}>Ideia</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Projeto opcional</label>
+        <select class="form-select" id="f-capture-project">
+          <option value="">— Nenhum —</option>
+          ${getProjectNames().map(name => `<option>${escHtml(name)}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+  `, () => {
+    const text = document.getElementById('f-capture-text').value.trim();
+    if (!text) { toast('Escreva algo para capturar.', 'error'); return false; }
+    const kind = document.getElementById('f-capture-kind').value;
+    const project = document.getElementById('f-capture-project').value;
+    if (kind === 'inbox') {
+      S.inbox.unshift({ id: uid(), text, project, createdAt: new Date().toISOString(), owner_id: currentUserId, owner_name: currentUserName });
+      saveInbox();
+    } else {
+      createFromCapture({ text, project }, kind);
+    }
+    renderDashboard();
+    toast(kind === 'inbox' ? 'Item guardado na caixa de entrada.' : 'Captura organizada com sucesso!');
+  });
+  setTimeout(() => document.getElementById('f-capture-text')?.focus(), 40);
+}
+
+function createFromCapture(capture, kind) {
+  const title = captureTitle(capture.text);
+  const detail = capture.text.split(/\r?\n/).slice(1).join('\n').trim();
+  if (kind === 'task') {
+    S.tasks.unshift({ id: uid(), title, description: detail, project: capture.project || '', priority: 'Média', col: 'backlog', due: '', subtasks: [], estimatedMinutes: 30, blocked: false, recurrence: 'none', owner_id: currentUserId, owner_name: currentUserName });
+    saveTasks();
+  } else if (kind === 'note') {
+    S.notes.unshift({ id: uid(), type: 'note', name: title, content: capture.text, parentId: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), owner_id: currentUserId, owner_name: currentUserName });
+    saveNotes();
+  } else if (kind === 'idea') {
+    S.ideas.unshift({ id: uid(), name: title, problem: detail, audience: '', monetization: '', potential: 'Médio', status: 'Em análise', notes: '', owner_id: currentUserId, owner_name: currentUserName });
+    saveIdeas();
+  }
+}
+
+function organizeInboxItem(id, kind) {
+  const item = S.inbox.find(entry => entry.id === id);
+  if (!item) return;
+  createFromCapture(item, kind);
+  S.inbox = S.inbox.filter(entry => entry.id !== id);
+  saveInbox();
+  renderDashboard();
+  if (S.section === 'tasks') renderTasks();
+  toast(kind === 'task' ? 'Transformado em tarefa.' : kind === 'note' ? 'Transformado em nota.' : 'Transformado em ideia.');
+}
+
+function deleteInboxItem(id) {
+  S.inbox = S.inbox.filter(entry => entry.id !== id);
+  saveInbox();
+  renderInbox();
+  toast('Captura removida.', 'info');
+}
+
+function renderInbox() {
+  const target = document.getElementById('inboxList');
+  if (!target) return;
+  const items = S.inbox.slice(0, 6);
+  target.innerHTML = items.length ? items.map(item => `
+    <div class="inbox-item">
+      <span class="inbox-item-icon"><i class='bx bx-edit-alt'></i></span>
+      <div class="inbox-item-content">
+        <strong>${escHtml(captureTitle(item.text))}</strong>
+        <span>${escHtml(item.project || 'Não organizado')} · ${new Date(item.createdAt).toLocaleDateString('pt-BR')}</span>
+      </div>
+      <div class="inbox-item-actions">
+        <button type="button" title="Transformar em tarefa" onclick="organizeInboxItem('${item.id}','task')"><i class='bx bx-check-square'></i></button>
+        <button type="button" title="Transformar em nota" onclick="organizeInboxItem('${item.id}','note')"><i class='bx bx-note'></i></button>
+        <button type="button" title="Transformar em ideia" onclick="organizeInboxItem('${item.id}','idea')"><i class='bx bx-bulb'></i></button>
+        <button class="danger" type="button" title="Remover" onclick="deleteInboxItem('${item.id}')"><i class='bx bx-x'></i></button>
+      </div>
+    </div>`).join('') : `
+      <button class="inbox-empty" type="button" onclick="openInboxCapture()">
+        <i class='bx bx-check-circle'></i><span>Caixa de entrada vazia</span><small>Capture qualquer coisa com um único atalho.</small>
+      </button>`;
+}
+
+/* ===== DAILY PLANNER ===== */
+function currentDailyPlan() {
+  const today = localDateString(new Date());
+  return S.dailyPlans.find(plan => plan.date === today) || null;
+}
+
+function openDailyPlanner() {
+  globalSearchClose();
+  const today = localDateString(new Date());
+  const plan = currentDailyPlan();
+  const selected = new Set(plan?.taskIds || []);
+  const openTasks = S.tasks
+    .filter(task => task.kind !== 'event' && (task.col !== 'done' || selected.has(task.id)))
+    .sort((a, b) => Number(b.priority === 'Alta') - Number(a.priority === 'Alta') || (a.due || '9999-12-31').localeCompare(b.due || '9999-12-31'));
+  openModal(plan ? 'Editar planejamento de hoje' : 'Planejar meu dia', `
+    <div class="daily-plan-form-head">
+      <span><i class='bx bx-sun'></i></span>
+      <div><strong>Escolha até 3 prioridades</strong><p>Um dia claro começa decidindo o que realmente importa.</p></div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Intenção do dia</label>
+      <input class="form-input" id="f-plan-intention" placeholder="Ex: Terminar o dia com a proposta enviada" value="${escHtml(plan?.intention || '')}">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Prioridades</label>
+      <div class="daily-task-picker">
+        ${openTasks.length ? openTasks.map(task => `
+          <label class="daily-task-option">
+            <input type="checkbox" name="daily-task" value="${task.id}"${selected.has(task.id)?' checked':''}>
+            <span class="daily-task-check"><i class='bx bx-check'></i></span>
+            <span class="daily-task-option-copy"><strong>${escHtml(task.title)}</strong><small>${escHtml(task.project || colLabels[task.col] || 'Tarefa')}${task.due ? ` · ${fmtDate(task.due)}` : ''}</small></span>
+            <span class="prio ${prioClass(task.priority)}">${escHtml(task.priority)}</span>
+          </label>`).join('') : '<div class="daily-picker-empty">Nenhuma tarefa pendente. Crie uma tarefa primeiro.</div>'}
+      </div>
+    </div>
+  `, () => {
+    const taskIds = [...document.querySelectorAll('input[name="daily-task"]:checked')].map(input => input.value);
+    if (taskIds.length > 3) { toast('Escolha no máximo 3 prioridades.', 'error'); return false; }
+    if (!taskIds.length) { toast('Escolha pelo menos uma prioridade.', 'error'); return false; }
+    const next = { date: today, intention: document.getElementById('f-plan-intention').value.trim(), taskIds, updatedAt: new Date().toISOString() };
+    const index = S.dailyPlans.findIndex(item => item.date === today);
+    if (index >= 0) S.dailyPlans[index] = next;
+    else S.dailyPlans.unshift(next);
+    saveDailyPlans();
+    renderDashboard();
+    toast('Planejamento do dia salvo!');
+  });
+}
+
+function renderDailyPlanner() {
+  const target = document.getElementById('dailyPlanner');
+  if (!target) return;
+  const plan = currentDailyPlan();
+  if (!plan) {
+    const suggested = S.tasks.filter(task => task.kind !== 'event' && task.col !== 'done' && (task.col === 'today' || task.priority === 'Alta')).length;
+    target.innerHTML = `<button class="daily-plan-callout" type="button" onclick="openDailyPlanner()">
+      <span class="daily-plan-callout-icon"><i class='bx bx-sun'></i></span>
+      <span><strong>Planeje seu dia em 1 minuto</strong><small>${suggested ? `${suggested} tarefa${suggested > 1 ? 's' : ''} merece${suggested > 1 ? 'm' : ''} atenção hoje.` : 'Escolha suas três prioridades e comece com clareza.'}</small></span>
+      <span class="daily-plan-callout-action">Planejar <i class='bx bx-right-arrow-alt'></i></span>
+    </button>`;
+    return;
+  }
+  const tasks = plan.taskIds.map(id => S.tasks.find(task => task.id === id)).filter(Boolean);
+  const done = tasks.filter(task => task.col === 'done').length;
+  const progress = tasks.length ? Math.round(done / tasks.length * 100) : 0;
+  target.innerHTML = `<section class="daily-plan-card">
+    <div class="daily-plan-card-head">
+      <div><span class="daily-plan-eyebrow"><i class='bx bx-sun'></i> Plano de hoje</span><h2>${escHtml(plan.intention || 'Prioridades definidas')}</h2></div>
+      <div class="daily-plan-progress"><strong>${done}/${tasks.length}</strong><span>concluídas</span><button type="button" onclick="openDailyPlanner()"><i class='bx bx-edit-alt'></i></button></div>
+    </div>
+    <div class="daily-plan-bar"><i style="width:${progress}%"></i></div>
+    <div class="daily-plan-tasks">
+      ${tasks.map(task => `<button class="daily-plan-task${task.col === 'done' ? ' done' : ''}" type="button" onclick="toggleTaskDone('${task.id}')"><span><i class='bx ${task.col === 'done' ? 'bx-check' : ''}'></i></span>${escHtml(task.title)}</button>`).join('')}
+    </div>
+  </section>`;
+}
+
 /* ===== DASHBOARD ===== */
 function renderDashboard() {
   const now = new Date();
@@ -772,6 +960,9 @@ function renderDashboard() {
     <div class="welcome-date-day">${now.getDate()}</div>
     <div class="welcome-date-info">${days[now.getDay()]}, ${months[now.getMonth()]} ${now.getFullYear()}</div>
   `;
+
+  renderDailyPlanner();
+  renderInbox();
 
   // Metrics
   const activeProjs = S.projects.filter(p => p.status === 'Em desenvolvimento').length;
@@ -1001,7 +1192,7 @@ function renderTasks() {
   document.querySelectorAll('.task-filter').forEach(btn => btn.classList.toggle('active', btn.dataset.filter === S.taskFilter));
   const q = (document.getElementById('globalSearch')?.value || '').trim().toLowerCase();
   let tasks = S.taskFilter === 'all' ? [...allTasks] : allTasks.filter(t => t.col === S.taskFilter);
-  if (q) tasks = tasks.filter(t => t.title.toLowerCase().includes(q) || (t.project || '').toLowerCase().includes(q));
+  if (q) tasks = tasks.filter(t => t.title.toLowerCase().includes(q) || (t.project || '').toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q));
 
   const statusOrder = { today: 0, inprogress: 1, backlog: 2, done: 3 };
   const priorityOrder = { 'Alta': 0, 'Média': 1, 'Baixa': 2 };
@@ -1024,6 +1215,9 @@ function taskListItem(t) {
   const dueDate = t.due ? new Date(t.due + 'T00:00:00') : null;
   const isOverdue = dueDate && dueDate < now && t.col !== 'done';
   const isDone = t.col === 'done';
+  const subtasks = Array.isArray(t.subtasks) ? t.subtasks : [];
+  const subtaskDone = subtasks.filter(item => item.done).length;
+  const recurrenceLabels = { daily: 'Diária', weekly: 'Semanal', monthly: 'Mensal' };
   return `
     <div class="task-list-item${isDone ? ' is-done' : ''}" data-id="${t.id}">
       <div class="task-list-main">
@@ -1034,6 +1228,12 @@ function taskListItem(t) {
         <div class="task-list-mobile-meta">
           ${t.project ? `<span><i class='bx bx-folder'></i>${escHtml(t.project)}</span>` : ''}
           ${t.due ? `<span class="${isOverdue ? 'overdue' : ''}"><i class='bx bx-calendar'></i>${fmtDate(t.due)}</span>` : ''}
+        </div>
+        <div class="task-extra-meta">
+          ${t.blocked ? `<span class="task-blocked"><i class='bx bx-block'></i> Bloqueada</span>` : ''}
+          ${subtasks.length ? `<span><i class='bx bx-list-check'></i> ${subtaskDone}/${subtasks.length}</span>` : ''}
+          ${Number(t.estimatedMinutes) ? `<span><i class='bx bx-time-five'></i> ${Number(t.estimatedMinutes)} min</span>` : ''}
+          ${t.recurrence && t.recurrence !== 'none' ? `<span><i class='bx bx-repeat'></i> ${recurrenceLabels[t.recurrence] || 'Recorrente'}</span>` : ''}
         </div>
       </div>
       <div class="task-list-project">${t.project ? `<span class="task-proj-tag">${escHtml(t.project)}</span>` : '<span class="task-muted">Sem projeto</span>'}</div>
@@ -1055,9 +1255,67 @@ function taskListItem(t) {
 function toggleTaskDone(id) {
   const task = S.tasks.find(t => t.id === id);
   if (!task) return;
-  if (task.col === 'done') task.col = task.previousCol && task.previousCol !== 'done' ? task.previousCol : 'backlog';
-  else { task.previousCol = task.col; task.col = 'done'; }
+  if (task.col === 'done') {
+    task.col = task.previousCol && task.previousCol !== 'done' ? task.previousCol : 'backlog';
+    if (task.nextOccurrenceId) {
+      S.tasks = S.tasks.filter(candidate => candidate.id !== task.nextOccurrenceId || candidate.recurrenceSourceId !== task.id || candidate.col === 'done');
+      delete task.nextOccurrenceId;
+    }
+  } else {
+    task.previousCol = task.col;
+    task.col = 'done';
+    createNextTaskOccurrence(task);
+  }
   saveTasks(); renderTasks(); renderDashboard();
+}
+
+function nextTaskDue(task) {
+  const base = dateFromString(task.due || localDateString(new Date()));
+  if (task.recurrence === 'daily') base.setDate(base.getDate() + 1);
+  else if (task.recurrence === 'weekly') base.setDate(base.getDate() + 7);
+  else if (task.recurrence === 'monthly') base.setMonth(base.getMonth() + 1);
+  return localDateString(base);
+}
+
+function createNextTaskOccurrence(task) {
+  if (!task.recurrence || task.recurrence === 'none' || task.nextOccurrenceId) return;
+  const due = nextTaskDue(task);
+  const next = {
+    ...task,
+    id: uid(),
+    due,
+    col: due === localDateString(new Date()) ? 'today' : 'backlog',
+    previousCol: undefined,
+    nextOccurrenceId: undefined,
+    recurrenceSourceId: task.id,
+    subtasks: (task.subtasks || []).map(item => ({ ...item, id: uid(), done: false }))
+  };
+  task.nextOccurrenceId = next.id;
+  S.tasks.unshift(next);
+  toast(`Próxima ocorrência criada para ${fmtDate(due)}.`, 'info');
+}
+
+function subtaskField(item = {}) {
+  return `<div class="subtask-form-row" data-id="${escHtml(item.id || uid())}">
+    <label><input class="subtask-form-check" type="checkbox"${item.done ? ' checked' : ''}><span><i class='bx bx-check'></i></span></label>
+    <input class="form-input subtask-form-title" value="${escHtml(item.title || '')}" placeholder="Descreva a subtarefa">
+    <button class="btn-icon danger" type="button" onclick="this.closest('.subtask-form-row').remove()" aria-label="Remover subtarefa"><i class='bx bx-x'></i></button>
+  </div>`;
+}
+
+function addSubtaskField(item = {}) {
+  const list = document.getElementById('taskSubtaskList');
+  if (!list) return;
+  list.insertAdjacentHTML('beforeend', subtaskField(item));
+  list.lastElementChild?.querySelector('.subtask-form-title')?.focus();
+}
+
+function collectSubtasks() {
+  return [...document.querySelectorAll('#taskSubtaskList .subtask-form-row')].map(row => ({
+    id: row.dataset.id || uid(),
+    title: row.querySelector('.subtask-form-title').value.trim(),
+    done: row.querySelector('.subtask-form-check').checked
+  })).filter(item => item.title);
 }
 
 function taskForm(t = {}) {
@@ -1066,6 +1324,10 @@ function taskForm(t = {}) {
     <div class="form-group">
       <label class="form-label">Título da Tarefa *</label>
       <input class="form-input" id="f-title" placeholder="Ex: Refinar dashboard" value="${escHtml(t.title || '')}">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Descrição</label>
+      <textarea class="form-textarea" id="f-task-description" rows="3" placeholder="Contexto, resultado esperado ou links importantes">${escHtml(t.description || '')}</textarea>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -1094,7 +1356,44 @@ function taskForm(t = {}) {
         <input class="form-input" id="f-due" type="date" value="${t.due || ''}">
       </div>
     </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">Tempo estimado</label>
+        <div class="input-suffix"><input class="form-input" id="f-task-estimate" type="number" min="0" max="1440" step="5" value="${Number(t.estimatedMinutes || 0)}"><span>min</span></div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Recorrência</label>
+        <select class="form-select" id="f-task-recurrence">
+          ${[['none','Não repetir'],['daily','Diariamente'],['weekly','Semanalmente'],['monthly','Mensalmente']].map(([value,label]) => `<option value="${value}"${(t.recurrence||'none')===value?' selected':''}>${label}</option>`).join('')}
+        </select>
+      </div>
+    </div>
+    <label class="task-block-toggle">
+      <input type="checkbox" id="f-task-blocked"${t.blocked ? ' checked' : ''}>
+      <span><i class='bx bx-block'></i></span>
+      <span><strong>Tarefa bloqueada</strong><small>Marque quando ela depende de algo antes de avançar.</small></span>
+    </label>
+    <div class="form-group task-subtasks-form">
+      <div class="form-section-head"><label class="form-label">Subtarefas</label><button type="button" onclick="addSubtaskField()"><i class='bx bx-plus'></i> Adicionar</button></div>
+      <div id="taskSubtaskList">${(t.subtasks || []).map(subtaskField).join('')}</div>
+    </div>
   `;
+}
+
+function readTaskForm(base = {}) {
+  return {
+    ...base,
+    title: document.getElementById('f-title').value.trim(),
+    description: document.getElementById('f-task-description').value.trim(),
+    project: document.getElementById('f-project').value,
+    priority: document.getElementById('f-priority').value,
+    col: document.getElementById('f-col').value,
+    due: document.getElementById('f-due').value,
+    estimatedMinutes: Math.max(0, Number(document.getElementById('f-task-estimate').value) || 0),
+    recurrence: document.getElementById('f-task-recurrence').value,
+    blocked: document.getElementById('f-task-blocked').checked,
+    subtasks: collectSubtasks()
+  };
 }
 
 function newTask(col) {
@@ -1102,7 +1401,7 @@ function newTask(col) {
   openModal('Nova Tarefa', taskForm(def), () => {
     const title = document.getElementById('f-title').value.trim();
     if (!title) { toast('Título obrigatório.', 'error'); return false; }
-    S.tasks.unshift({ id: uid(), title, project: document.getElementById('f-project').value, priority: document.getElementById('f-priority').value, col: document.getElementById('f-col').value, due: document.getElementById('f-due').value, owner_id: currentUserId, owner_name: currentUserName });
+    S.tasks.unshift(readTaskForm({ id: uid(), owner_id: currentUserId, owner_name: currentUserName }));
     saveTasks(); renderTasks(); renderDashboard(); if (S.section === 'agenda') renderAgenda(); toast('Tarefa criada!');
   });
 }
@@ -1113,7 +1412,7 @@ function editTask(id) {
   openModal('Editar Tarefa', taskForm(t), () => {
     const title = document.getElementById('f-title').value.trim();
     if (!title) { toast('Título obrigatório.', 'error'); return false; }
-    Object.assign(t, { title, project: document.getElementById('f-project').value, priority: document.getElementById('f-priority').value, col: document.getElementById('f-col').value, due: document.getElementById('f-due').value });
+    Object.assign(t, readTaskForm(t));
     saveTasks(); renderTasks(); renderDashboard(); if (S.section === 'agenda') renderAgenda(); toast('Tarefa atualizada!');
   });
 }
@@ -2693,6 +2992,7 @@ function bindEvents() {
 
   // Primary action button
   document.getElementById('primaryBtn').addEventListener('click', primaryAction);
+  document.getElementById('captureBtn').addEventListener('click', () => openInboxCapture());
 
   // Modal
   document.getElementById('modalSave').addEventListener('click', () => {
@@ -2721,6 +3021,11 @@ function bindEvents() {
     const isTyping = e.target?.matches?.('input, textarea, select, [contenteditable="true"]');
     const hasOverlayOpen = document.getElementById('modalOverlay')?.classList.contains('open') ||
       document.getElementById('confirmOverlay')?.classList.contains('open');
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k' && !hasOverlayOpen) {
+      e.preventDefault();
+      openCommandCenter();
+      return;
+    }
     if (isTyping || !e.ctrlKey || e.shiftKey || e.metaKey) return;
 
     const key = e.key.toLowerCase();
@@ -2765,11 +3070,28 @@ function bindEvents() {
 
   // Global search
   document.getElementById('globalSearch').addEventListener('input', globalSearchHandler);
+  document.getElementById('globalSearch').addEventListener('focus', globalSearchHandler);
   document.getElementById('globalSearch').addEventListener('keydown', e => {
     if (e.key === 'Escape') {
       e.target.value = '';
       globalSearchClose();
       if (S.section === 'tasks') renderTasks();
+      return;
+    }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      const results = [...document.querySelectorAll('#searchResults .search-result-item')];
+      if (!results.length) return;
+      e.preventDefault();
+      const current = results.findIndex(item => item.classList.contains('command-active'));
+      const next = e.key === 'ArrowDown' ? (current + 1) % results.length : (current <= 0 ? results.length - 1 : current - 1);
+      results.forEach(item => item.classList.remove('command-active'));
+      results[next].classList.add('command-active');
+      results[next].scrollIntoView({ block: 'nearest' });
+      return;
+    }
+    if (e.key === 'Enter') {
+      const active = document.querySelector('#searchResults .search-result-item.command-active');
+      if (active) { e.preventDefault(); active.click(); }
     }
   });
   document.addEventListener('click', e => {
@@ -2858,6 +3180,41 @@ async function startApp() {
    BUSCA GLOBAL
    ==================================================== */
 
+const COMMAND_CENTER_ACTIONS = [
+  { id: 'capture', title: 'Capturar na caixa de entrada', sub: 'Registrar qualquer coisa sem interromper o fluxo', icon: 'bx-edit-alt', keywords: 'capturar inbox entrada lembrar' },
+  { id: 'plan-day', title: 'Planejar meu dia', sub: 'Definir intenção e três prioridades', icon: 'bx-sun', keywords: 'planejar hoje prioridades foco' },
+  { id: 'new-task', title: 'Criar nova tarefa', sub: 'Adicionar uma tarefa completa', icon: 'bx-check-square', keywords: 'tarefa criar adicionar' },
+  { id: 'new-note', title: 'Criar nota rápida', sub: 'Capturar diretamente como nota', icon: 'bx-note', keywords: 'nota criar escrever' },
+  { id: 'new-idea', title: 'Registrar uma ideia', sub: 'Capturar diretamente como ideia', icon: 'bx-bulb', keywords: 'ideia criar registrar' },
+  { id: 'new-transaction', title: 'Registrar lançamento financeiro', sub: 'Adicionar uma receita ou despesa', icon: 'bx-dollar-circle', keywords: 'financeiro gasto despesa receita transacao' },
+  { id: 'go-tasks', title: 'Ir para Tarefas', sub: 'Abrir sua lista de tarefas', icon: 'bx-list-check', keywords: 'navegar tarefas lista' },
+  { id: 'go-agenda', title: 'Ir para Agenda', sub: 'Abrir calendário e recorrências', icon: 'bx-calendar', keywords: 'navegar agenda calendario' }
+];
+
+function openCommandCenter() {
+  if (isMobileLayout()) toggleMobileSearch(true);
+  const input = document.getElementById('globalSearch');
+  input.focus();
+  input.select();
+  globalSearchHandler();
+}
+
+function runCommand(command) {
+  document.getElementById('globalSearch').value = '';
+  globalSearchClose();
+  const actions = {
+    capture: () => openInboxCapture(),
+    'plan-day': () => openDailyPlanner(),
+    'new-task': () => newTask(),
+    'new-note': () => openInboxCapture('note'),
+    'new-idea': () => openInboxCapture('idea'),
+    'new-transaction': () => newTransaction(),
+    'go-tasks': () => navigateTo('tasks'),
+    'go-agenda': () => navigateTo('agenda')
+  };
+  actions[command]?.();
+}
+
 function globalSearchClose() {
   const panel = document.getElementById('searchResults');
   if (panel) panel.classList.remove('open');
@@ -2869,47 +3226,43 @@ function globalSearchHandler() {
   if (!panel) return;
 
   if (S.section === 'tasks') renderTasks();
-
-  if (q.length < 2) { globalSearchClose(); return; }
-
   const groups = [];
 
-  const tasks = S.tasks.filter(t => t.kind !== 'event' && (
-    t.title.toLowerCase().includes(q) || (t.project||'').toLowerCase().includes(q)
-  )
-  ).slice(0, 4);
-  if (tasks.length) groups.push({ label: 'Tarefas', icon: 'bx-check-square', bg: '--blue-dim', color: '--blue', section: 'tasks', items: tasks.map(t => ({ title: t.title, sub: t.project || 'Tarefa', id: null })) });
+  const commands = COMMAND_CENTER_ACTIONS.filter(command => !q || `${command.title} ${command.sub} ${command.keywords}`.toLowerCase().includes(q)).slice(0, q ? 4 : 6);
+  if (commands.length) groups.push({ label: q ? 'Comandos' : 'Ações rápidas', icon: 'bx-command', bg: '--accent-dim', color: '--accent', items: commands.map(command => ({ ...command, command: command.id })) });
 
-  const recurringEvents = S.tasks.filter(event => isRecurringEvent(event) && (
-    event.title.toLowerCase().includes(q) || (event.project || '').toLowerCase().includes(q)
-  )).slice(0, 4);
-  if (recurringEvents.length) groups.push({ label: 'Eventos recorrentes', icon: 'bx-repeat', bg: '--purple-dim', color: '--purple', section: 'agenda', items: recurringEvents.map(event => ({ title: event.title, sub: `${event.time || ''} · ${recurrenceLabel(event)}`, id: null })) });
+  if (q.length >= 2) {
+    const tasks = S.tasks.filter(t => t.kind !== 'event' && (
+      t.title.toLowerCase().includes(q) || (t.project||'').toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q)
+    )).slice(0, 4);
+    if (tasks.length) groups.push({ label: 'Tarefas', icon: 'bx-check-square', bg: '--blue-dim', color: '--blue', section: 'tasks', items: tasks.map(t => ({ title: t.title, sub: t.project || 'Tarefa' })) });
 
-  const projects = S.projects.filter(p =>
-    p.name.toLowerCase().includes(q) || (p.desc||'').toLowerCase().includes(q)
-  ).slice(0, 3);
-  if (projects.length) groups.push({ label: 'Projetos', icon: 'bx-folder-open', bg: '--amber-dim', color: '--amber', section: 'projects', items: projects.map(p => ({ title: p.name, sub: p.status, id: null })) });
+    const inboxItems = S.inbox.filter(item => item.text.toLowerCase().includes(q)).slice(0, 3);
+    if (inboxItems.length) groups.push({ label: 'Caixa de entrada', icon: 'bx-inbox', bg: '--accent-dim', color: '--accent', section: 'dashboard', items: inboxItems.map(item => ({ title: captureTitle(item.text), sub: item.project || 'Não organizado' })) });
 
-  const ideas = S.ideas.filter(i =>
-    i.name.toLowerCase().includes(q) || (i.problem||'').toLowerCase().includes(q)
-  ).slice(0, 3);
-  if (ideas.length) groups.push({ label: 'Ideias', icon: 'bx-bulb', bg: '--purple-dim', color: '--purple', section: 'ideas', items: ideas.map(i => ({ title: i.name, sub: i.status, id: null })) });
+    const recurringEvents = S.tasks.filter(event => isRecurringEvent(event) && (
+      event.title.toLowerCase().includes(q) || (event.project || '').toLowerCase().includes(q)
+    )).slice(0, 4);
+    if (recurringEvents.length) groups.push({ label: 'Eventos recorrentes', icon: 'bx-repeat', bg: '--purple-dim', color: '--purple', section: 'agenda', items: recurringEvents.map(event => ({ title: event.title, sub: `${event.time || ''} · ${recurrenceLabel(event)}` })) });
 
-  const notes = S.notes.filter(n =>
-    n.type === 'note' && (n.name.toLowerCase().includes(q) || (n.content||'').toLowerCase().includes(q))
-  ).slice(0, 5);
-  if (notes.length) groups.push({ label: 'Notas', icon: 'bx-notepad', bg: '--green-dim', color: '--green', section: 'notes', items: notes.map(n => {
-    const folder = n.parentId ? S.notes.find(f => f.id === n.parentId) : null;
-    return { title: n.name, sub: folder ? folder.name : 'Notas', noteId: n.id };
-  })});
+    const projects = S.projects.filter(p => p.name.toLowerCase().includes(q) || (p.desc||'').toLowerCase().includes(q)).slice(0, 3);
+    if (projects.length) groups.push({ label: 'Projetos', icon: 'bx-folder-open', bg: '--amber-dim', color: '--amber', section: 'projects', items: projects.map(p => ({ title: p.name, sub: p.status })) });
 
-  const contacts = S.contacts.filter(c =>
-    c.name.toLowerCase().includes(q) || (c.company||'').toLowerCase().includes(q)
-  ).slice(0, 3);
-  if (contacts.length) groups.push({ label: 'CRM', icon: 'bx-user-circle', bg: '--blue-dim', color: '--blue', section: 'crm', items: contacts.map(c => ({ title: c.name, sub: c.company || 'Contato', id: null })) });
+    const ideas = S.ideas.filter(i => i.name.toLowerCase().includes(q) || (i.problem||'').toLowerCase().includes(q)).slice(0, 3);
+    if (ideas.length) groups.push({ label: 'Ideias', icon: 'bx-bulb', bg: '--purple-dim', color: '--purple', section: 'ideas', items: ideas.map(i => ({ title: i.name, sub: i.status })) });
+
+    const notes = S.notes.filter(n => n.type === 'note' && (n.name.toLowerCase().includes(q) || (n.content||'').toLowerCase().includes(q))).slice(0, 5);
+    if (notes.length) groups.push({ label: 'Notas', icon: 'bx-notepad', bg: '--green-dim', color: '--green', section: 'notes', items: notes.map(n => {
+      const folder = n.parentId ? S.notes.find(f => f.id === n.parentId) : null;
+      return { title: n.name, sub: folder ? folder.name : 'Notas', noteId: n.id };
+    })});
+
+    const contacts = S.contacts.filter(c => c.name.toLowerCase().includes(q) || (c.company||'').toLowerCase().includes(q)).slice(0, 3);
+    if (contacts.length) groups.push({ label: 'CRM', icon: 'bx-user-circle', bg: '--blue-dim', color: '--blue', section: 'crm', items: contacts.map(c => ({ title: c.name, sub: c.company || 'Contato' })) });
+  }
 
   if (!groups.length) {
-    panel.innerHTML = `<div class="search-empty"><i class='bx bx-search-alt'></i>Nenhum resultado para "<strong>${q}</strong>"</div>`;
+    panel.innerHTML = `<div class="search-empty"><i class='bx bx-search-alt'></i>Nenhum resultado para "<strong>${escHtml(q)}</strong>"</div>`;
     panel.classList.add('open');
     return;
   }
@@ -2918,25 +3271,28 @@ function globalSearchHandler() {
     ${gi > 0 ? '<hr class="search-divider">' : ''}
     <div class="search-group-label">${g.label}</div>
     ${g.items.map(item => `
-      <div class="search-result-item" data-section="${g.section}" data-note-id="${item.noteId || ''}">
+      <div class="search-result-item" data-section="${g.section || ''}" data-note-id="${item.noteId || ''}" data-command="${item.command || ''}">
         <div class="search-result-icon" style="background:var(${g.bg});color:var(${g.color})">
-          <i class='bx ${g.icon}'></i>
+          <i class='bx ${item.icon || g.icon}'></i>
         </div>
         <div class="search-result-text">
-          <div class="search-result-title">${item.title}</div>
-          <div class="search-result-sub">${item.sub}</div>
+          <div class="search-result-title">${escHtml(item.title)}</div>
+          <div class="search-result-sub">${escHtml(item.sub)}</div>
         </div>
       </div>`).join('')}`).join('');
 
   panel.querySelectorAll('.search-result-item').forEach(el => {
     el.addEventListener('click', () => {
-      const { section, noteId } = el.dataset;
+      const { section, noteId, command } = el.dataset;
+      if (command) { runCommand(command); return; }
       document.getElementById('globalSearch').value = '';
       navigateTo(section);
       if (section === 'notes' && noteId) setTimeout(() => notesOpenNote(noteId), 60);
       globalSearchClose();
     });
   });
+
+  panel.querySelector('.search-result-item')?.classList.add('command-active');
 
   panel.classList.add('open');
 }
@@ -3400,7 +3756,11 @@ const JARVIS_TOOLS = [
           project:  { type: 'string' },
           priority: { type: 'string', enum: ['Alta','Média','Baixa'] },
           due:      { type: 'string', description: 'YYYY-MM-DD (opcional)' },
-          col:      { type: 'string', enum: ['backlog','today','inprogress','done'] }
+          col:      { type: 'string', enum: ['backlog','today','inprogress','done'] },
+          description: { type: 'string' },
+          estimated_minutes: { type: 'number' },
+          blocked: { type: 'boolean' },
+          recurrence: { type: 'string', enum: ['none','daily','weekly','monthly'] }
         },
         required: ['title','col']
       }
@@ -3994,10 +4354,16 @@ async function jarvisRunTool(name, args) {
     }
 
     case 'create_task': {
-      const t = { id: uid(), title: args.title, project: args.project||'', priority: args.priority||'Média', due: args.due||'', col: args.col||'backlog' };
+      const t = {
+        id: uid(), title: args.title, description: args.description || '', project: args.project || '',
+        priority: args.priority || 'Média', due: args.due || '', col: args.col || 'backlog',
+        estimatedMinutes: Math.max(Number(args.estimated_minutes) || 0, 0), blocked: Boolean(args.blocked),
+        recurrence: args.recurrence || 'none', subtasks: [], owner_id: currentUserId, owner_name: currentUserName
+      };
       S.tasks.push(t);
       saveTasks();
       renderTasks();
+      renderDashboard();
       return { success: true, task: t };
     }
 
@@ -4378,6 +4744,243 @@ Contexto atual do Motion Hub:
 ${jarvisBuildHubSnapshot()}`;
 }
 
+/* ===== JARVIS LOCAL BRAIN ===== */
+function jarvisLocalDate(text) {
+  const normalized = jarvisNormalize(text);
+  const today = localDateString(new Date());
+  if (/depois de amanha/.test(normalized)) return addCalendarDays(today, 2);
+  if (/\bamanha\b/.test(normalized)) return addCalendarDays(today, 1);
+  if (/\bhoje\b/.test(normalized)) return today;
+
+  const explicit = String(text).match(/\b(\d{1,2})[\/]([0-1]?\d)(?:[\/](\d{2,4}))?\b/);
+  if (explicit) {
+    const year = explicit[3] ? (explicit[3].length === 2 ? `20${explicit[3]}` : explicit[3]) : String(new Date().getFullYear());
+    return `${year}-${String(explicit[2]).padStart(2, '0')}-${String(explicit[1]).padStart(2, '0')}`;
+  }
+
+  const weekdays = { domingo: 0, segunda: 1, terca: 2, quarta: 3, quinta: 4, sexta: 5, sabado: 6 };
+  const weekday = Object.entries(weekdays).find(([name]) => new RegExp(`\\b${name}(?:-feira)?\\b`).test(normalized));
+  if (weekday) {
+    const now = new Date();
+    let offset = (weekday[1] - now.getDay() + 7) % 7;
+    if (offset === 0 && !normalized.includes('hoje')) offset = 7;
+    return addCalendarDays(today, offset);
+  }
+  return '';
+}
+
+function jarvisLocalProject(text) {
+  const normalized = jarvisNormalize(text);
+  return S.projects.find(project => normalized.includes(jarvisNormalize(project.name)))?.name || '';
+}
+
+function jarvisLocalPriority(text) {
+  const normalized = jarvisNormalize(text);
+  if (/\b(alta|urgente|prioritaria)\b/.test(normalized)) return 'Alta';
+  if (/\bbaixa\b/.test(normalized)) return 'Baixa';
+  return 'Média';
+}
+
+function jarvisLocalRecurrence(text) {
+  const normalized = jarvisNormalize(text);
+  if (/todo dia|todos os dias|diari/.test(normalized)) return 'daily';
+  if (/toda semana|semanal/.test(normalized)) return 'weekly';
+  if (/todo mes|mensal/.test(normalized)) return 'monthly';
+  return 'none';
+}
+
+function jarvisLocalTaskTitle(text, project = '') {
+  let title = String(text || '').trim()
+    .replace(/^(por favor[, ]*)?(crie|criar|adicione|adicionar|registre|registrar)\s+(uma\s+)?(nova\s+)?tarefa\s*/i, '')
+    .replace(/^\s*para\s+/i, '')
+    .replace(/\b(de\s+)?(alta|m[eé]dia|baixa)\s+prioridade\b/ig, '')
+    .replace(/\b(com\s+prioridade\s+)(alta|m[eé]dia|baixa)\b/ig, '')
+    .replace(/\b(para\s+)?(hoje|amanh[ãa]|depois de amanh[ãa])\b/ig, '')
+    .replace(/\b(no|para o)\s+projeto\s+[^,.]+/ig, '')
+    .replace(/\s+/g, ' ')
+    .replace(/^\s*para\s+/i, '')
+    .replace(/^[,:;\-\s]+|[,:;\-\s.]+$/g, '')
+    .trim();
+  if (project) title = title.replace(new RegExp(`\\s+(?:no|para o)\\s+${project}$`, 'i'), '').trim();
+  return title.charAt(0).toUpperCase() + title.slice(1);
+}
+
+function jarvisFindTask(query, { includeDone = false } = {}) {
+  const normalized = jarvisNormalize(query)
+    .replace(/\b(a|o|uma|um|tarefa|de|do|da|para|como|marque|marcar|conclua|concluir|finalize|finalizar|feito|concluida)\b/g, ' ')
+    .replace(/\s+/g, ' ').trim();
+  if (!normalized) return { matches: [] };
+  const words = normalized.split(' ').filter(word => word.length > 2);
+  const matches = S.tasks.filter(task => task.kind !== 'event' && (includeDone || task.col !== 'done')).map(task => {
+    const title = jarvisNormalize(task.title);
+    const score = title.includes(normalized) || normalized.includes(title) ? 100 : words.reduce((sum, word) => sum + (title.includes(word) ? 1 : 0), 0);
+    return { task, score };
+  }).filter(item => item.score > 0).sort((a, b) => b.score - a.score);
+  const bestScore = matches[0]?.score || 0;
+  return { matches: matches.filter(item => item.score === bestScore).map(item => item.task) };
+}
+
+function jarvisLocalMoney(text) {
+  const match = String(text).match(/(?:R\$\s*)?(\d+(?:\.\d{3})*(?:,\d{1,2})?|\d+(?:\.\d{1,2})?)/i);
+  if (!match) return 0;
+  const raw = match[1];
+  return Number(raw.includes(',') ? raw.replace(/\./g, '').replace(',', '.') : raw);
+}
+
+function jarvisLocalTransactionDescription(text) {
+  const afterWith = String(text).match(/\b(?:com|em|para)\s+(.+?)(?:\s+(?:hoje|amanh[ãa]|no projeto).*)?$/i)?.[1];
+  if (afterWith) return afterWith.trim().replace(/[.]+$/, '');
+  return String(text).replace(/^(registre|registrar|adicione|adicionar)\s+(uma\s+)?(despesa|receita|gasto)\s*/i, '')
+    .replace(/(?:de\s+)?R?\$?\s*\d+(?:[.,]\d+)?/i, '').trim() || 'Lançamento via Jarvis';
+}
+
+function jarvisLocalTaskList(col = 'all') {
+  const labels = { all: 'Tarefas abertas', today: 'Tarefas de hoje', backlog: 'Backlog', inprogress: 'Em andamento', done: 'Concluídas' };
+  let tasks = S.tasks.filter(task => task.kind !== 'event');
+  if (col === 'all') tasks = tasks.filter(task => task.col !== 'done');
+  else tasks = tasks.filter(task => task.col === col);
+  tasks.sort((a, b) => Number(b.priority === 'Alta') - Number(a.priority === 'Alta') || (a.due || '9999-12-31').localeCompare(b.due || '9999-12-31'));
+  if (!tasks.length) return `**${labels[col]}:** nenhuma.`;
+  return `**${labels[col]} (${tasks.length}):**\n${tasks.slice(0, 10).map(task => `- ${task.title}${task.project ? ` · ${task.project}` : ''}${task.due ? ` · ${fmtDate(task.due)}` : ''}${task.blocked ? ' · bloqueada' : ''}`).join('\n')}`;
+}
+
+function jarvisLocalDaySummary() {
+  const today = localDateString(new Date());
+  const dueToday = S.tasks.filter(task => task.kind !== 'event' && task.col !== 'done' && (task.due === today || task.col === 'today'));
+  const overdue = S.tasks.filter(task => task.kind !== 'event' && task.col !== 'done' && task.due && task.due < today);
+  const events = agendaItemsForDate(today).filter(item => item.kind === 'event');
+  const pendingHabits = S.habits.filter(habit => !(habit.completions || []).includes(today));
+  const plan = currentDailyPlan();
+  const lines = [
+    `**Seu dia agora:**`,
+    `- ${dueToday.length} tarefa${dueToday.length === 1 ? '' : 's'} para hoje`,
+    `- ${overdue.length} atrasada${overdue.length === 1 ? '' : 's'}`,
+    `- ${events.length} compromisso${events.length === 1 ? '' : 's'} na agenda`,
+    `- ${pendingHabits.length} hábito${pendingHabits.length === 1 ? '' : 's'} pendente${pendingHabits.length === 1 ? '' : 's'}`
+  ];
+  if (plan?.taskIds?.length) {
+    const planned = plan.taskIds.map(id => S.tasks.find(task => task.id === id)).filter(Boolean);
+    lines.push(`\n**Prioridades planejadas:**\n${planned.map(task => `- ${task.col === 'done' ? '✓' : '○'} ${task.title}`).join('\n')}`);
+  } else if (dueToday.length) {
+    lines.push(`\n**Comece por:** ${dueToday.sort((a,b) => Number(b.priority === 'Alta') - Number(a.priority === 'Alta'))[0].title}.`);
+  }
+  return lines.join('\n');
+}
+
+function jarvisAutoPlanDay() {
+  const today = localDateString(new Date());
+  const candidates = S.tasks.filter(task => task.kind !== 'event' && task.col !== 'done').sort((a, b) => {
+    const rank = task => task.due && task.due < today ? 0 : task.col === 'today' || task.due === today ? 1 : task.priority === 'Alta' ? 2 : 3;
+    return rank(a) - rank(b) || (a.due || '9999-12-31').localeCompare(b.due || '9999-12-31');
+  }).slice(0, 3);
+  if (!candidates.length) return 'Você não tem tarefas pendentes para montar o plano de hoje.';
+  const intention = `Avançar ${candidates[0].project || 'nas prioridades mais importantes'}`;
+  const plan = { date: today, intention, taskIds: candidates.map(task => task.id), updatedAt: new Date().toISOString() };
+  const index = S.dailyPlans.findIndex(item => item.date === today);
+  if (index >= 0) S.dailyPlans[index] = plan; else S.dailyPlans.unshift(plan);
+  saveDailyPlans(); renderDashboard();
+  return `Planejamento criado com estas prioridades:\n${candidates.map((task, index) => `${index + 1}. **${task.title}**${task.project ? ` · ${task.project}` : ''}`).join('\n')}\n\nVocê pode ajustá-lo no Dashboard.`;
+}
+
+async function jarvisTryLocal(text, { fallback = false } = {}) {
+  const normalized = jarvisNormalize(text).replace(/[?!]+$/g, '').trim();
+  const starts = pattern => pattern.test(normalized);
+
+  if (/^(oi|ola|bom dia|boa tarde|boa noite|e ai|jarvis)$/.test(normalized)) {
+    return { handled: true, response: 'Olá, **Vitor**! O cérebro local está ativo. Posso operar tarefas, agenda, hábitos, projetos, financeiro, planejamento diário e navegação mesmo sem o Groq.' };
+  }
+
+  if (/^(ajuda|comandos|o que voce consegue fazer|o que voce faz)$/.test(normalized) || normalized.includes('modo local')) {
+    return { handled: true, response: '**Cérebro local disponível sem limites:**\n- Consultar, criar e concluir tarefas\n- Resumir ou planejar seu dia\n- Capturar itens na caixa de entrada\n- Consultar projetos, metas, hábitos e financeiro\n- Registrar receitas e despesas\n- Navegar pelo Motion Hub\n\nPara análises abertas, criatividade e conversas gerais, uso o Groq quando estiver disponível.' };
+  }
+
+  if (starts(/^(capture|capturar|anote|anotar|guarde|guardar)\b/) && /(caixa|entrada|inbox|lembrete|capture|anote)/.test(normalized)) {
+    const content = String(text).replace(/^(capture|capturar|anote|anotar|guarde|guardar)(\s+(na|no)\s+(caixa de entrada|inbox))?\s*[:,-]?\s*/i, '').trim();
+    if (!content) return { handled: true, response: 'O que você quer que eu guarde na caixa de entrada?' };
+    S.inbox.unshift({ id: uid(), text: content, project: jarvisLocalProject(text), createdAt: new Date().toISOString(), owner_id: currentUserId, owner_name: currentUserName });
+    saveInbox(); renderDashboard();
+    return { handled: true, response: `Guardei **${captureTitle(content)}** na caixa de entrada.` };
+  }
+
+  if (/planej(e|ar|a)|monte.*(meu )?dia|defina.*prioridades/.test(normalized) && /dia|hoje|prioridades/.test(normalized)) {
+    return { handled: true, response: jarvisAutoPlanDay() };
+  }
+
+  if (starts(/^(crie|criar|adicione|adicionar|registre|registrar)\b/) && /\btarefa\b/.test(normalized)) {
+    const project = jarvisLocalProject(text);
+    const title = jarvisLocalTaskTitle(text, project);
+    if (!title) return { handled: true, response: 'Qual é o título da tarefa que você quer criar?' };
+    const due = jarvisLocalDate(text);
+    const recurrence = jarvisLocalRecurrence(text);
+    const result = await jarvisRunTool('create_task', { title, project, priority: jarvisLocalPriority(text), due, col: due === localDateString(new Date()) ? 'today' : 'backlog', recurrence });
+    return { handled: true, response: `Tarefa criada: **${result.task.title}**${project ? ` em ${project}` : ''}${due ? `, para ${fmtDate(due)}` : ''}, prioridade ${result.task.priority.toLowerCase()}${recurrence !== 'none' ? ' e recorrente' : ''}.` };
+  }
+
+  if (starts(/^(marque|marcar|conclua|concluir|finalize|finalizar)\b/) && /(tarefa|como concluida|como feita)/.test(normalized)) {
+    const found = jarvisFindTask(text);
+    if (!found.matches.length) return { handled: true, response: 'Não encontrei uma tarefa pendente com esse nome.' };
+    if (found.matches.length > 1) return { handled: true, response: `Encontrei mais de uma possibilidade:\n${found.matches.slice(0,5).map(task => `- ${task.title}`).join('\n')}\n\nDiga um trecho mais específico.` };
+    toggleTaskDone(found.matches[0].id);
+    return { handled: true, response: `Marquei **${found.matches[0].title}** como concluída.` };
+  }
+
+  const sectionMap = { dashboard: 'dashboard', inicio: 'dashboard', projetos: 'projects', tarefas: 'tasks', habitos: 'habits', agenda: 'agenda', ideias: 'ideas', metas: 'goals', crm: 'crm', financeiro: 'financial', financas: 'financial', notas: 'notes', jarvis: 'jarvis' };
+  if (starts(/^(abra|abrir|va para|ir para|mostre a tela|navegue para)\b/)) {
+    const target = Object.entries(sectionMap).find(([label]) => normalized.includes(label));
+    if (target) { navigateTo(target[1]); return { handled: true, response: `Abri **${sectionMeta[target[1]].label}**.` }; }
+  }
+
+  if (starts(/^(registre|registrar|adicione|adicionar)\b/) && /\b(despesa|gasto|receita)\b/.test(normalized)) {
+    const value = jarvisLocalMoney(text);
+    if (!value) return { handled: true, response: 'Qual é o valor do lançamento?' };
+    const type = /receita/.test(normalized) ? 'Receita' : 'Despesa';
+    const desc = jarvisLocalTransactionDescription(text);
+    await jarvisRunTool('add_transaction', { type, desc, value, project: jarvisLocalProject(text), date: jarvisLocalDate(text) || localDateString(new Date()) });
+    return { handled: true, response: `${type} registrada: **${desc}**, no valor de **${fmtCurrency(value)}**.` };
+  }
+
+  if (/quanto (eu )?(gastei|recebi)|resumo financeiro|meu saldo|como estao minhas financas/.test(normalized)) {
+    const today = localDateString(new Date());
+    const monthStart = `${today.slice(0, 7)}-01`;
+    const totals = financialTotals(financialEntriesBetween(monthStart, today));
+    return { handled: true, response: `**Financeiro deste mês:**\n- Receitas: ${fmtCurrency(totals.income)}\n- Despesas: ${fmtCurrency(totals.expense)}\n- Saldo: **${fmtCurrency(totals.balance)}**` };
+  }
+
+  if (/resum.*(dia|hoje|motion hub)|como esta (meu )?dia|o que tenho (para )?hoje|minha rotina hoje/.test(normalized)) {
+    return { handled: true, response: jarvisLocalDaySummary() };
+  }
+
+  if (/tarefas/.test(normalized) && /(liste|listar|mostre|mostrar|quais|tenho|pendentes|backlog|andamento|concluidas|hoje)/.test(normalized)) {
+    const col = /backlog/.test(normalized) ? 'backlog' : /andamento/.test(normalized) ? 'inprogress' : /concluid/.test(normalized) ? 'done' : /hoje/.test(normalized) ? 'today' : 'all';
+    return { handled: true, response: jarvisLocalTaskList(col) };
+  }
+
+  if (/(meus|liste|listar|mostre|quais).*projetos|projetos ativos/.test(normalized) && !/(analise|avalie|sugira|estrateg|proximo passo)/.test(normalized)) {
+    const projects = S.projects.filter(project => project.status !== 'Pausado');
+    return { handled: true, response: projects.length ? `**Projetos:**\n${projects.map(project => `- ${project.name} · ${project.status} · ${project.progress || 0}%`).join('\n')}` : 'Nenhum projeto ativo.' };
+  }
+
+  if (/(minhas|liste|listar|mostre|quais).*metas|metas em risco/.test(normalized) && !/(analise|avalie|sugira|estrateg|proximo passo)/.test(normalized)) {
+    const goals = normalized.includes('risco') ? S.goals.filter(goal => goal.status === 'Em risco' || goal.status === 'Atrasado') : S.goals;
+    return { handled: true, response: goals.length ? `**Metas:**\n${goals.map(goal => `- ${goal.objective} · ${goal.status}`).join('\n')}` : 'Nenhuma meta encontrada nesse filtro.' };
+  }
+
+  if (/(meus|liste|listar|mostre|quais).*habitos|habitos (de )?hoje/.test(normalized) && !/(analise|avalie|sugira|estrateg)/.test(normalized)) {
+    const today = localDateString(new Date());
+    return { handled: true, response: `**Hábitos de hoje:**\n${S.habits.map(habit => `- ${(habit.completions || []).includes(today) ? '✓' : '○'} ${habit.name}`).join('\n') || '- Nenhum hábito cadastrado'}` };
+  }
+
+  if (/caixa de entrada|inbox/.test(normalized) && /(mostre|liste|listar|o que tem|itens)/.test(normalized)) {
+    return { handled: true, response: S.inbox.length ? `**Caixa de entrada (${S.inbox.length}):**\n${S.inbox.slice(0,10).map(item => `- ${captureTitle(item.text)}`).join('\n')}` : 'Sua caixa de entrada está vazia.' };
+  }
+
+  if (fallback) {
+    return { handled: true, response: 'O Groq não está disponível agora. Meu **cérebro local** continua funcionando para tarefas, planejamento diário, caixa de entrada, projetos, hábitos, metas, financeiro e navegação.\n\nTente, por exemplo: `planeje meu dia`, `crie uma tarefa para amanhã` ou `quanto gastei este mês`.' };
+  }
+
+  return { handled: false };
+}
+
 async function jarvisWebSearch(args = {}) {
   const query = String(args.query || '').trim();
   if (!query) return { success: false, error: 'Informe uma busca em query.' };
@@ -4405,6 +5008,7 @@ async function jarvisWebSearch(args = {}) {
 async function jarvisCallGroq(messages) {
   const key = localStorage.getItem(JARVIS_KEY_STORE);
   const systemPrompt = jarvisBuildSystemPrompt();
+  const cleanMessages = messages.map(({ brain, ...message }) => message);
 
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
@@ -4419,7 +5023,7 @@ Secao atual do usuario no Hub: ${sectionMeta[S.section]?.label || S.section}.
 Use show_choices quando houver varios caminhos bons, quando faltar uma decisao importante, ou quando o usuario pedir um plano. As opcoes devem ser curtas, acionaveis e em portugues brasileiro.`
         + `
 Para pedidos sobre componentes, snippets, botoes, inputs, cards, loaders, animacoes ou landing pages, use search_code_assets. Quando fizer sentido, ofereca abrir a biblioteca filtrada com open_code_assets.`
-      }, ...messages],
+      }, ...cleanMessages],
       tools: JARVIS_TOOLS,
       tool_choice: 'auto',
       parallel_tool_calls: false,
@@ -4437,12 +5041,13 @@ Para pedidos sobre componentes, snippets, botoes, inputs, cards, loaders, animac
 
 async function jarvisCallGroqNoTools(messages) {
   const key = localStorage.getItem(JARVIS_KEY_STORE);
+  const cleanMessages = messages.map(({ brain, ...message }) => message);
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
     body: JSON.stringify({
       model: JARVIS_MODEL,
-      messages,
+      messages: cleanMessages,
       max_tokens: 1600
     })
   });
@@ -4459,9 +5064,6 @@ async function jarvisSend(source = 'panel') {
   const text  = input?.value?.trim();
   if (!text || jarvisBusy) return;
 
-  const key = localStorage.getItem(JARVIS_KEY_STORE);
-  if (!key) { jarvisPromptKey(); return; }
-
   input.value = '';
   input.style.height = 'auto';
   jarvisMessages.push({ role: 'user', content: text });
@@ -4469,6 +5071,27 @@ async function jarvisSend(source = 'panel') {
   jarvisSetBusy(true);
 
   try {
+    const local = await jarvisTryLocal(text);
+    if (local.handled) {
+      const reply = { role: 'assistant', content: local.response, brain: 'local' };
+      jarvisMessages.push(reply);
+      jarvisSetBusy(false);
+      jarvisSetBrainStatus('local');
+      jarvisAppendMsg('assistant', reply.content, 'local');
+      return;
+    }
+
+    const key = localStorage.getItem(JARVIS_KEY_STORE);
+    if (!key) {
+      const fallback = await jarvisTryLocal(text, { fallback: true });
+      const reply = { role: 'assistant', content: fallback.response, brain: 'fallback' };
+      jarvisMessages.push(reply);
+      jarvisSetBusy(false);
+      jarvisSetBrainStatus('fallback');
+      jarvisAppendMsg('assistant', reply.content, 'fallback');
+      return;
+    }
+
     const jarvisFallbackMsgs = () => [
       { role: 'system', content: jarvisBuildSystemPrompt() },
       ...jarvisMessages
@@ -4498,16 +5121,22 @@ async function jarvisSend(source = 'panel') {
     }
 
     const reply = choice.message;
+    reply.brain = 'groq';
     jarvisMessages.push(reply);
     jarvisSetBusy(false);
-    jarvisAppendMsg('assistant', reply.content || '…');
+    jarvisSetBrainStatus('groq');
+    jarvisAppendMsg('assistant', reply.content || '…', 'groq');
   } catch (err) {
+    const fallback = await jarvisTryLocal(text, { fallback: true });
+    const reply = { role: 'assistant', content: fallback.response, brain: 'local' };
+    jarvisMessages.push(reply);
     jarvisSetBusy(false);
-    jarvisAppendMsg('error', err.message);
+    jarvisSetBrainStatus('fallback');
+    jarvisAppendMsg('assistant', reply.content, 'fallback');
   }
 }
 
-function jarvisAppendMsg(role, content) {
+function jarvisAppendMsg(role, content, brain = '') {
   ['jarvisMsgList', 'jarvisPageMsgList'].forEach(listId => {
     const list = document.getElementById(listId);
     if (!list) return;
@@ -4516,7 +5145,8 @@ function jarvisAppendMsg(role, content) {
     if (role === 'user') {
       div.innerHTML = `<div class="jarvis-bubble">${jarvisEsc(content)}</div>`;
     } else if (role === 'assistant') {
-      div.innerHTML = `<div class="jarvis-avatar-sm"><i class='bx bx-bot'></i></div><div class="jarvis-bubble">${jarvisMd(content)}</div>`;
+      const brainLabel = brain === 'groq' ? 'Groq' : brain === 'fallback' ? 'Local · contingência' : brain === 'local' ? 'Local' : '';
+      div.innerHTML = `<div class="jarvis-avatar-sm"><i class='bx bx-bot'></i></div><div class="jarvis-bubble">${brainLabel ? `<span class="jarvis-brain-badge ${brain}"><i class='bx ${brain === 'groq' ? 'bx-cloud' : 'bx-code-alt'}'></i>${brainLabel}</span>` : ''}${jarvisMd(content)}</div>`;
     } else {
       div.innerHTML = `<div class="jarvis-bubble"><i class='bx bx-error-circle'></i> ${jarvisEsc(content)}</div>`;
     }
@@ -4560,7 +5190,7 @@ function jarvisRenderHistory() {
   });
   jarvisMessages
     .filter(msg => msg.role === 'user' || msg.role === 'assistant')
-    .forEach(msg => jarvisAppendMsg(msg.role, msg.content || ''));
+    .forEach(msg => jarvisAppendMsg(msg.role, msg.content || '', msg.brain || ''));
 }
 
 function jarvisEsc(s) {
@@ -4606,7 +5236,16 @@ function jarvisPromptKey() {
 function jarvisGreet() {
   if (jarvisGreeted) return;
   jarvisGreeted = true;
-  jarvisAppendMsg('assistant', 'Ola, **Vitor**! Sou o **Jarvis**, seu assistente estrategico no Motion Hub. Posso responder duvidas gerais, analisar ideias de negocio, pensar produto, growth, vendas e tambem executar acoes no seu Hub.');
+  jarvisAppendMsg('assistant', 'Olá, **Vitor**! Agora opero com dois cérebros: o **local**, rápido e sem limites para ações no Hub, e o **Groq** para análises e conversas mais abertas.');
+}
+
+function jarvisSetBrainStatus(mode = 'hybrid') {
+  const status = document.getElementById('jarvisBrainStatus');
+  if (!status) return;
+  const labels = { hybrid: 'Híbrido', local: 'Cérebro local', groq: 'Groq', fallback: 'Local · contingência' };
+  status.textContent = labels[mode] || labels.hybrid;
+  status.parentElement?.classList.toggle('local-mode', mode === 'local' || mode === 'fallback');
+  status.parentElement?.classList.toggle('groq-mode', mode === 'groq');
 }
 
 function renderJarvisPage() {
@@ -4623,7 +5262,7 @@ function jarvisToggle() {
   if (jarvisOpen) {
     if (!jarvisGreeted) {
       jarvisGreeted = true;
-      jarvisAppendMsg('assistant', 'Ola, **Vitor**! Sou o **Jarvis**, seu assistente estrategico no Motion Hub. Posso responder duvidas gerais, analisar ideias de negocio, pensar produto, growth, vendas e tambem executar acoes no seu Hub.');
+      jarvisAppendMsg('assistant', 'Olá, **Vitor**! Agora opero com dois cérebros: o **local**, rápido e sem limites para ações no Hub, e o **Groq** para análises e conversas mais abertas.');
     }
     setTimeout(() => document.getElementById('jarvisInput')?.focus(), 120);
   }
