@@ -18,6 +18,8 @@ const S = {
   inbox: [],
   dailyPlans: [],
   profiles: {},
+  settingsTab: 'profile',
+  activeInsights: [],
   modalSave: null,
   confirmOk: null,
   projectFilter: 'all',
@@ -29,19 +31,24 @@ let _krCounter = 0;
 let _selectedMood = 3;
 let projectRhythmInterval = null;
 let projectRhythmAlertOpen = false;
+let insightInterval = null;
 
 /* ===== LOCAL STORAGE ===== */
 const STORAGE_KEY = 'motion_hub_data_v1';
+const SETTINGS_KEY = 'motion_hub_settings_v1';
+const INSIGHT_STATE_KEY = 'motion_hub_insight_state_v1';
 const PROJECT_RHYTHM_KEY = 'motion_project_rhythm_v1';
 const ACCESS_PASSWORD = '@Vitor0911071234';
 const ACCESS_SESSION_KEY = 'motion_hub_access_ok_v1';
 const DATA_FIELDS = ['projects', 'tasks', 'ideas', 'contacts', 'transactions', 'docs', 'habits', 'goals', 'reviews', 'notes', 'inbox', 'dailyPlans'];
 const BACKUP_FORMAT = 'motion-hub-backup';
-const BACKUP_VERSION = 1;
+const BACKUP_VERSION = 2;
 const BACKUP_SAFETY_KEY = 'motion_hub_safety_backup_v1';
 const BACKUP_MAX_BYTES = 20 * 1024 * 1024;
 const BACKUP_STORES = [
   { key: STORAGE_KEY, label: 'Motion Hub', icon: 'bx-grid-alt', required: true },
+  { key: SETTINGS_KEY, label: 'Preferências', icon: 'bx-cog' },
+  { key: INSIGHT_STATE_KEY, label: 'Jarvis proativo', icon: 'bx-bot' },
   { key: PROJECT_RHYTHM_KEY, label: 'Ritmo dos projetos', icon: 'bx-timer' },
   { key: 'growth_hub_data_v2', label: 'Growth Hub', icon: 'bx-line-chart' },
   { key: 'motion_code_assets_library_v1', label: 'Code Assets', icon: 'bx-code-curly' }
@@ -49,6 +56,159 @@ const BACKUP_STORES = [
 let currentUserId   = 'vitor';
 let currentUserName = 'Vitor';
 let currentUserColor = '#6366f1';
+
+const SETTINGS_COLORS = [
+  { name: 'Azul', value: '#2563EB', strong: '#1D4ED8', soft: '#60A5FA' },
+  { name: 'Índigo', value: '#6366F1', strong: '#4F46E5', soft: '#A5B4FC' },
+  { name: 'Roxo', value: '#8B5CF6', strong: '#7C3AED', soft: '#C4B5FD' },
+  { name: 'Verde', value: '#16A34A', strong: '#15803D', soft: '#86EFAC' },
+  { name: 'Laranja', value: '#EA580C', strong: '#C2410C', soft: '#FDBA74' },
+  { name: 'Rosa', value: '#DB2777', strong: '#BE185D', soft: '#F9A8D4' }
+];
+const DASHBOARD_WIDGETS = [
+  { id: 'dailyPlanner', label: 'Planejamento do dia', icon: 'bx-sun' },
+  { id: 'jarvisInsights', label: 'Jarvis recomenda', icon: 'bx-bot' },
+  { id: 'metrics', label: 'Métricas gerais', icon: 'bx-bar-chart-alt-2' },
+  { id: 'projectRhythm', label: 'Ritmo dos projetos', icon: 'bx-timer' },
+  { id: 'inbox', label: 'Caixa de entrada', icon: 'bx-inbox' },
+  { id: 'activeProjects', label: 'Projetos em andamento', icon: 'bx-folder-open' },
+  { id: 'weekFocus', label: 'Foco da semana', icon: 'bx-target-lock' },
+  { id: 'nextSteps', label: 'Próximos passos', icon: 'bx-list-ul' },
+  { id: 'priorityTasks', label: 'Tarefas prioritárias', icon: 'bx-check-square' }
+];
+const DEFAULT_SETTINGS = {
+  profile: { displayName: 'Vitor Falcão', role: 'Founder', avatarColor: '#6366F1' },
+  appearance: { accentColor: '#2563EB' },
+  notifications: { enabled: true, overdueTasks: true, todayTasks: true, pendingHabits: true, atRiskGoals: true },
+  dashboard: { widgets: DASHBOARD_WIDGETS.map(widget => ({ id: widget.id, visible: true })) },
+  automations: {
+    enabled: true,
+    staleProjects: true,
+    overdueTasks: true,
+    crmFollowUps: true,
+    atRiskGoals: true,
+    weeklyReview: true,
+    dailyWrap: true,
+    staleProjectDays: 7,
+    overdueMove: 'off'
+  }
+};
+let appSettings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
+let insightState = { dismissedUntil: {}, lastProactiveKey: '', lastAutomationDate: '' };
+
+function normalizeSettings(candidate = {}) {
+  const profile = candidate?.profile && typeof candidate.profile === 'object' ? candidate.profile : {};
+  const appearance = candidate?.appearance && typeof candidate.appearance === 'object' ? candidate.appearance : {};
+  const notifications = candidate?.notifications && typeof candidate.notifications === 'object' ? candidate.notifications : {};
+  const dashboard = candidate?.dashboard && typeof candidate.dashboard === 'object' ? candidate.dashboard : {};
+  const automations = candidate?.automations && typeof candidate.automations === 'object' ? candidate.automations : {};
+  const validColor = color => SETTINGS_COLORS.some(option => option.value.toLowerCase() === String(color || '').toLowerCase());
+  const bool = (value, fallback) => typeof value === 'boolean' ? value : fallback;
+  const cleanName = typeof profile.displayName === 'string' ? profile.displayName.trim().slice(0, 60) : '';
+  const cleanRole = typeof profile.role === 'string' ? profile.role.trim().slice(0, 40) : '';
+  const widgetCandidates = Array.isArray(dashboard.widgets) ? dashboard.widgets : [];
+  const normalizedWidgets = [];
+  widgetCandidates.forEach(item => {
+    if (!item || !DASHBOARD_WIDGETS.some(widget => widget.id === item.id) || normalizedWidgets.some(widget => widget.id === item.id)) return;
+    normalizedWidgets.push({ id: item.id, visible: item.visible !== false });
+  });
+  DASHBOARD_WIDGETS.forEach(widget => {
+    if (!normalizedWidgets.some(item => item.id === widget.id)) normalizedWidgets.push({ id: widget.id, visible: true });
+  });
+  const staleDays = Math.max(2, Math.min(90, Number(automations.staleProjectDays) || 7));
+  return {
+    profile: {
+      displayName: cleanName || DEFAULT_SETTINGS.profile.displayName,
+      role: cleanRole || DEFAULT_SETTINGS.profile.role,
+      avatarColor: validColor(profile.avatarColor) ? profile.avatarColor.toUpperCase() : DEFAULT_SETTINGS.profile.avatarColor
+    },
+    appearance: {
+      accentColor: validColor(appearance.accentColor) ? appearance.accentColor.toUpperCase() : DEFAULT_SETTINGS.appearance.accentColor
+    },
+    notifications: {
+      enabled: bool(notifications.enabled, true),
+      overdueTasks: bool(notifications.overdueTasks, true),
+      todayTasks: bool(notifications.todayTasks, true),
+      pendingHabits: bool(notifications.pendingHabits, true),
+      atRiskGoals: bool(notifications.atRiskGoals, true)
+    },
+    dashboard: { widgets: normalizedWidgets },
+    automations: {
+      enabled: bool(automations.enabled, true),
+      staleProjects: bool(automations.staleProjects, true),
+      overdueTasks: bool(automations.overdueTasks, true),
+      crmFollowUps: bool(automations.crmFollowUps, true),
+      atRiskGoals: bool(automations.atRiskGoals, true),
+      weeklyReview: bool(automations.weeklyReview, true),
+      dailyWrap: bool(automations.dailyWrap, true),
+      staleProjectDays: staleDays,
+      overdueMove: automations.overdueMove === 'today' ? 'today' : 'off'
+    }
+  };
+}
+
+function colorRgb(hex) {
+  const value = hex.replace('#', '');
+  return `${parseInt(value.slice(0, 2), 16)}, ${parseInt(value.slice(2, 4), 16)}, ${parseInt(value.slice(4, 6), 16)}`;
+}
+
+function profileInitials(name) {
+  return String(name || 'U').trim().split(/\s+/).slice(0, 2).map(part => part[0] || '').join('').toUpperCase() || 'U';
+}
+
+function applySettings() {
+  const accent = SETTINGS_COLORS.find(option => option.value === appSettings.appearance.accentColor) || SETTINGS_COLORS[0];
+  const root = document.documentElement;
+  root.style.setProperty('--accent', accent.value);
+  root.style.setProperty('--accent-rgb', colorRgb(accent.value));
+  root.style.setProperty('--accent-strong', accent.strong);
+  root.style.setProperty('--accent-soft', accent.soft);
+  root.style.setProperty('--accent-dim', `rgba(${colorRgb(accent.value)}, 0.15)`);
+  root.style.setProperty('--accent-dim2', `rgba(${colorRgb(accent.value)}, 0.06)`);
+  root.style.setProperty('--accent-glow', `0 0 20px rgba(${colorRgb(accent.value)}, 0.4)`);
+
+  currentUserName = appSettings.profile.displayName;
+  currentUserColor = appSettings.profile.avatarColor;
+  const avatar = document.getElementById('sidebarUserAvatar');
+  const name = document.getElementById('sidebarUserName');
+  const role = document.getElementById('sidebarUserRole');
+  if (avatar) { avatar.textContent = profileInitials(currentUserName); avatar.style.background = currentUserColor; }
+  if (name) name.textContent = currentUserName;
+  if (role) role.textContent = appSettings.profile.role;
+  if (S.profiles.vitor) {
+    S.profiles.vitor.display_name = currentUserName;
+    S.profiles.vitor.avatar_color = currentUserColor;
+  }
+  applyDashboardPreferences();
+}
+
+function loadSettings() {
+  appSettings = normalizeSettings(readStore(SETTINGS_KEY, {}));
+  writeStore(SETTINGS_KEY, appSettings);
+  applySettings();
+}
+
+function loadInsightState() {
+  const stored = readStore(INSIGHT_STATE_KEY, {});
+  insightState = {
+    dismissedUntil: stored?.dismissedUntil && typeof stored.dismissedUntil === 'object' ? stored.dismissedUntil : {},
+    lastProactiveKey: typeof stored?.lastProactiveKey === 'string' ? stored.lastProactiveKey : '',
+    lastAutomationDate: typeof stored?.lastAutomationDate === 'string' ? stored.lastAutomationDate : ''
+  };
+  writeStore(INSIGHT_STATE_KEY, insightState);
+}
+
+function saveInsightState() {
+  writeStore(INSIGHT_STATE_KEY, insightState);
+}
+
+function saveSettings(nextSettings, message = 'Configurações salvas com sucesso.') {
+  appSettings = normalizeSettings(nextSettings);
+  writeStore(SETTINGS_KEY, appSettings);
+  applySettings();
+  updateNotifBadge();
+  toast(message, 'success');
+}
 
 function readStore(key, fallback) {
   try {
@@ -90,7 +250,7 @@ async function loadProfiles() {
   S.profiles = {
     vitor: {
       id: 'vitor',
-      display_name: 'Vitor',
+      display_name: currentUserName,
       avatar_color: currentUserColor
     }
   };
@@ -356,6 +516,243 @@ function initBackup() {
   });
 }
 
+/* ===== SETTINGS ===== */
+function settingsColorOptions(selected, inputName, optionClass = '') {
+  return SETTINGS_COLORS.map(option => `
+    <label class="settings-color-option ${optionClass}" title="${option.name}">
+      <input type="radio" name="${inputName}" value="${option.value}" ${selected === option.value ? 'checked' : ''}>
+      <span class="settings-color-swatch" style="--swatch:${option.value}"><i class='bx bx-check'></i></span>
+      <small>${option.name}</small>
+    </label>`).join('');
+}
+
+function switchSettingsTab(tab = 'profile') {
+  const available = ['profile', 'appearance', 'notifications', 'automations', 'jarvis', 'data'];
+  S.settingsTab = available.includes(tab) ? tab : 'profile';
+  document.querySelectorAll('[data-settings-tab]').forEach(button => {
+    const active = button.dataset.settingsTab === S.settingsTab;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-selected', String(active));
+  });
+  document.querySelectorAll('[data-settings-pane]').forEach(pane => pane.classList.toggle('active', pane.dataset.settingsPane === S.settingsTab));
+  if (S.settingsTab === 'data') renderBackupPage();
+  if (S.settingsTab === 'jarvis') renderJarvisSettings();
+  if (S.settingsTab === 'automations') renderAutomationSettings();
+}
+
+function applyDashboardPreferences() {
+  const container = document.getElementById('dashboardWidgets');
+  if (!container || !appSettings.dashboard?.widgets) return;
+  appSettings.dashboard.widgets.forEach(widget => {
+    const element = container.querySelector(`[data-dashboard-widget="${widget.id}"]`);
+    if (!element) return;
+    element.classList.toggle('dashboard-widget-hidden', !widget.visible);
+    container.appendChild(element);
+  });
+}
+
+function moveDashboardWidget(button, direction) {
+  const row = button.closest('.dashboard-customize-row');
+  if (!row) return;
+  if (direction < 0 && row.previousElementSibling) row.parentElement.insertBefore(row, row.previousElementSibling);
+  if (direction > 0 && row.nextElementSibling) row.parentElement.insertBefore(row.nextElementSibling, row);
+}
+
+function openDashboardCustomizer() {
+  const current = appSettings.dashboard.widgets;
+  openModal('Personalizar Dashboard', `
+    <div class="dashboard-customize-intro"><i class='bx bx-slider-alt'></i><div><strong>Escolha o que merece sua atenção</strong><p>Mostre, oculte e reorganize os blocos do Dashboard.</p></div></div>
+    <div class="dashboard-customize-list" id="dashboardCustomizeList">
+      ${current.map(item => {
+        const meta = DASHBOARD_WIDGETS.find(widget => widget.id === item.id);
+        return `<div class="dashboard-customize-row" data-widget-id="${item.id}">
+          <label><input type="checkbox" ${item.visible ? 'checked' : ''}><span><i class='bx bx-check'></i></span><i class='bx ${meta?.icon || 'bx-grid-alt'}'></i><strong>${escHtml(meta?.label || item.id)}</strong></label>
+          <div><button class="btn-icon" type="button" onclick="moveDashboardWidget(this,-1)" aria-label="Mover para cima"><i class='bx bx-up-arrow-alt'></i></button><button class="btn-icon" type="button" onclick="moveDashboardWidget(this,1)" aria-label="Mover para baixo"><i class='bx bx-down-arrow-alt'></i></button></div>
+        </div>`;
+      }).join('')}
+    </div>`, () => {
+    const rows = [...document.querySelectorAll('#dashboardCustomizeList .dashboard-customize-row')];
+    const widgets = rows.map(row => ({ id: row.dataset.widgetId, visible: row.querySelector('input').checked }));
+    if (!widgets.some(widget => widget.visible)) { toast('Mantenha pelo menos um bloco visível.', 'error'); return false; }
+    saveSettings({ ...appSettings, dashboard: { widgets } }, 'Dashboard personalizado com sucesso.');
+    renderDashboard();
+    return true;
+  });
+  document.getElementById('modalSave').innerHTML = `<i class='bx bx-save'></i> Salvar Dashboard`;
+}
+
+function renderProfileSettings() {
+  const profile = appSettings.profile;
+  const nameInput = document.getElementById('settingsProfileName');
+  const roleInput = document.getElementById('settingsProfileRole');
+  if (!nameInput || !roleInput) return;
+  nameInput.value = profile.displayName;
+  roleInput.value = profile.role;
+  document.getElementById('profileColorOptions').innerHTML = settingsColorOptions(profile.avatarColor, 'profileAvatarColor');
+  updateProfilePreview();
+}
+
+function updateProfilePreview() {
+  const name = document.getElementById('settingsProfileName')?.value.trim() || DEFAULT_SETTINGS.profile.displayName;
+  const role = document.getElementById('settingsProfileRole')?.value.trim() || DEFAULT_SETTINGS.profile.role;
+  const color = document.querySelector('input[name="profileAvatarColor"]:checked')?.value || appSettings.profile.avatarColor;
+  const avatar = document.getElementById('profilePreviewAvatar');
+  if (avatar) { avatar.textContent = profileInitials(name); avatar.style.background = color; }
+  const previewName = document.getElementById('profilePreviewName');
+  const previewRole = document.getElementById('profilePreviewRole');
+  if (previewName) previewName.textContent = name;
+  if (previewRole) previewRole.textContent = role;
+}
+
+function renderAppearanceSettings() {
+  const container = document.getElementById('accentColorOptions');
+  if (container) container.innerHTML = settingsColorOptions(appSettings.appearance.accentColor, 'settingsAccentColor', 'accent-color-option');
+}
+
+function renderNotificationSettings() {
+  const settings = appSettings.notifications;
+  const enabled = document.getElementById('settingsNotifEnabled');
+  if (enabled) enabled.checked = settings.enabled;
+  document.querySelectorAll('[data-notification]').forEach(input => { input.checked = settings[input.dataset.notification]; });
+  syncNotificationSettingsState();
+}
+
+function renderAutomationSettings() {
+  const settings = appSettings.automations;
+  const enabled = document.getElementById('settingsAutomationEnabled');
+  if (enabled) enabled.checked = settings.enabled;
+  document.querySelectorAll('[data-automation]').forEach(input => { input.checked = settings[input.dataset.automation]; });
+  const staleDays = document.getElementById('settingsStaleProjectDays');
+  const overdueMove = document.getElementById('settingsOverdueMove');
+  if (staleDays) staleDays.value = settings.staleProjectDays;
+  if (overdueMove) overdueMove.value = settings.overdueMove;
+  syncAutomationSettingsState();
+}
+
+function syncAutomationSettingsState() {
+  const enabled = document.getElementById('settingsAutomationEnabled')?.checked !== false;
+  document.getElementById('automationRuleSettings')?.classList.toggle('disabled', !enabled);
+  document.querySelectorAll('[data-automation], #settingsStaleProjectDays, #settingsOverdueMove').forEach(input => { input.disabled = !enabled; });
+}
+
+function syncNotificationSettingsState() {
+  const enabled = document.getElementById('settingsNotifEnabled')?.checked !== false;
+  document.getElementById('notificationCategorySettings')?.classList.toggle('disabled', !enabled);
+  document.querySelectorAll('[data-notification]').forEach(input => { input.disabled = !enabled; });
+}
+
+function renderJarvisSettings() {
+  const configured = Boolean(localStorage.getItem(JARVIS_KEY_STORE));
+  const status = document.getElementById('jarvisKeyStatus');
+  const remove = document.getElementById('removeGroqKeyBtn');
+  const input = document.getElementById('settingsGroqKey');
+  if (status) {
+    status.className = `settings-status ${configured ? 'configured' : 'not-configured'}`;
+    status.innerHTML = `<i class='bx ${configured ? 'bx-check-circle' : 'bx-info-circle'}'></i>${configured ? 'Chave configurada' : 'Não configurada'}`;
+  }
+  if (remove) remove.disabled = !configured;
+  if (input) { input.value = ''; input.type = 'password'; }
+  const visibility = document.querySelector('#toggleGroqKeyVisibility i');
+  if (visibility) visibility.className = 'bx bx-show';
+}
+
+function renderSettingsPage() {
+  renderProfileSettings();
+  renderAppearanceSettings();
+  renderNotificationSettings();
+  renderAutomationSettings();
+  renderJarvisSettings();
+  switchSettingsTab(S.settingsTab);
+}
+
+function openSettings(tab = 'profile') {
+  S.settingsTab = tab;
+  navigateTo('settings');
+}
+
+function initSettings() {
+  document.getElementById('settingsTabs')?.addEventListener('click', event => {
+    const button = event.target.closest('[data-settings-tab]');
+    if (button) switchSettingsTab(button.dataset.settingsTab);
+  });
+
+  const userCard = document.getElementById('userCard');
+  userCard?.addEventListener('click', () => openSettings('profile'));
+  userCard?.addEventListener('keydown', event => {
+    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openSettings('profile'); }
+  });
+
+  document.getElementById('profileSettingsForm')?.addEventListener('input', updateProfilePreview);
+  document.getElementById('profileSettingsForm')?.addEventListener('change', updateProfilePreview);
+  document.getElementById('profileSettingsForm')?.addEventListener('submit', event => {
+    event.preventDefault();
+    const displayName = document.getElementById('settingsProfileName').value.trim();
+    const role = document.getElementById('settingsProfileRole').value.trim();
+    if (displayName.length < 2) return toast('Informe um nome com pelo menos 2 caracteres.', 'error');
+    if (!role) return toast('Informe sua função no workspace.', 'error');
+    const avatarColor = document.querySelector('input[name="profileAvatarColor"]:checked')?.value || DEFAULT_SETTINGS.profile.avatarColor;
+    saveSettings({ ...appSettings, profile: { displayName, role, avatarColor } }, 'Perfil atualizado com sucesso.');
+    renderProfileSettings();
+  });
+
+  document.getElementById('appearanceSettingsForm')?.addEventListener('submit', event => {
+    event.preventDefault();
+    const accentColor = document.querySelector('input[name="settingsAccentColor"]:checked')?.value || DEFAULT_SETTINGS.appearance.accentColor;
+    saveSettings({ ...appSettings, appearance: { accentColor } }, 'Aparência atualizada com sucesso.');
+    renderAppearanceSettings();
+  });
+
+  document.getElementById('settingsNotifEnabled')?.addEventListener('change', syncNotificationSettingsState);
+  document.getElementById('notificationSettingsForm')?.addEventListener('submit', event => {
+    event.preventDefault();
+    const notifications = { enabled: document.getElementById('settingsNotifEnabled').checked };
+    document.querySelectorAll('[data-notification]').forEach(input => { notifications[input.dataset.notification] = input.checked; });
+    saveSettings({ ...appSettings, notifications }, 'Preferências de notificação salvas.');
+    renderNotificationSettings();
+  });
+
+  document.getElementById('settingsAutomationEnabled')?.addEventListener('change', syncAutomationSettingsState);
+  document.getElementById('automationSettingsForm')?.addEventListener('submit', event => {
+    event.preventDefault();
+    const automations = {
+      enabled: document.getElementById('settingsAutomationEnabled').checked,
+      staleProjectDays: Number(document.getElementById('settingsStaleProjectDays').value),
+      overdueMove: document.getElementById('settingsOverdueMove').value
+    };
+    document.querySelectorAll('[data-automation]').forEach(input => { automations[input.dataset.automation] = input.checked; });
+    saveSettings({ ...appSettings, automations }, 'Automações atualizadas com sucesso.');
+    renderAutomationSettings();
+    runAutomationCycle({ force: true });
+  });
+
+  document.getElementById('customizeDashboardBtn')?.addEventListener('click', openDashboardCustomizer);
+
+  document.getElementById('toggleGroqKeyVisibility')?.addEventListener('click', () => {
+    const input = document.getElementById('settingsGroqKey');
+    const icon = document.querySelector('#toggleGroqKeyVisibility i');
+    input.type = input.type === 'password' ? 'text' : 'password';
+    icon.className = `bx ${input.type === 'password' ? 'bx-show' : 'bx-hide'}`;
+  });
+  document.getElementById('jarvisSettingsForm')?.addEventListener('submit', event => {
+    event.preventDefault();
+    const input = document.getElementById('settingsGroqKey');
+    const key = input.value.trim();
+    if (!key) return toast(localStorage.getItem(JARVIS_KEY_STORE) ? 'Digite uma nova chave para substituir a atual.' : 'Informe uma chave Groq.', 'info');
+    localStorage.setItem(JARVIS_KEY_STORE, key);
+    renderJarvisSettings();
+    toast('Chave Groq salva neste navegador.', 'success');
+  });
+  document.getElementById('removeGroqKeyBtn')?.addEventListener('click', () => {
+    openModal('Remover chave Groq', `<div class="backup-restore-warning"><i class='bx bx-key'></i><div><strong>Remover a chave deste navegador?</strong><p>O Jarvis continuará funcionando com o cérebro local, mas respostas abertas via Groq ficarão indisponíveis.</p></div></div>`, () => {
+      localStorage.removeItem(JARVIS_KEY_STORE);
+      renderJarvisSettings();
+      toast('Chave Groq removida.', 'success');
+      return true;
+    });
+    document.getElementById('modalSave').innerHTML = `<i class='bx bx-trash'></i> Remover chave`;
+  });
+}
+
 /* ===== IDs ===== */
 function uid() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
@@ -507,10 +904,10 @@ const sectionMeta = {
   review:     { label: 'Revisão Semanal',   btnLabel: 'Nova Revisão' },
   prompts:    { label: 'Prompts & Docs',    btnLabel: 'Novo Documento' },
   notes:      { label: 'Notas',             btnLabel: null },
-  backup:     { label: 'Backup & Dados',    btnLabel: null }
+  settings:   { label: 'Configurações',     btnLabel: null }
 };
 
-const sectionOrder = ['dashboard', 'projects', 'tasks', 'habits', 'agenda', 'jarvis', 'ideas', 'goals', 'crm', 'financial', 'review', 'prompts', 'notes', 'backup'];
+const sectionOrder = ['dashboard', 'projects', 'tasks', 'habits', 'agenda', 'jarvis', 'ideas', 'goals', 'crm', 'financial', 'review', 'prompts', 'notes', 'settings'];
 
 function navigateTo(section, direction = null) {
   const contentArea = document.querySelector('.content-area');
@@ -605,7 +1002,7 @@ function renderSection(section) {
   else if (section === 'review') renderReview();
   else if (section === 'prompts') renderPrompts();
   else if (section === 'notes') renderNotesTree();
-  else if (section === 'backup') renderBackupPage();
+  else if (section === 'settings') renderSettingsPage();
 }
 
 /* ===== TOAST ===== */
@@ -1075,7 +1472,8 @@ function createFromCapture(capture, kind) {
   const title = captureTitle(capture.text);
   const detail = capture.text.split(/\r?\n/).slice(1).join('\n').trim();
   if (kind === 'task') {
-    S.tasks.unshift({ id: uid(), title, description: detail, project: capture.project || '', priority: 'Média', col: 'backlog', due: '', subtasks: [], estimatedMinutes: 30, blocked: false, recurrence: 'none', owner_id: currentUserId, owner_name: currentUserName });
+    const now = new Date().toISOString();
+    S.tasks.unshift({ id: uid(), title, description: detail, project: capture.project || '', priority: 'Média', col: 'backlog', due: '', subtasks: [], estimatedMinutes: 30, blocked: false, recurrence: 'none', createdAt: now, updatedAt: now, owner_id: currentUserId, owner_name: currentUserName });
     saveTasks();
   } else if (kind === 'note') {
     S.notes.unshift({ id: uid(), type: 'note', name: title, content: capture.text, parentId: null, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), owner_id: currentUserId, owner_name: currentUserName });
@@ -1204,6 +1602,236 @@ function renderDailyPlanner() {
   </section>`;
 }
 
+/* ===== JARVIS INSIGHTS & AUTOMATIONS ===== */
+function insightDateValue(value) {
+  if (!value) return null;
+  const date = new Date(value.length === 10 ? `${value}T12:00:00` : value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function daysSince(value) {
+  const date = insightDateValue(value);
+  return date ? Math.max(0, Math.floor((Date.now() - date.getTime()) / 86400000)) : 999;
+}
+
+function projectLastActivity(project) {
+  const dates = [project.updatedAt, project.createdAt];
+  S.tasks.filter(task => task.project === project.name).forEach(task => dates.push(task.updatedAt, task.createdAt));
+  S.docs.filter(doc => doc.project === project.name).forEach(doc => dates.push(doc.updatedAt, doc.date));
+  const valid = dates.map(insightDateValue).filter(Boolean).filter(date => date.getTime() <= Date.now());
+  return valid.length ? new Date(Math.max(...valid.map(date => date.getTime()))) : null;
+}
+
+function taskInsightScore(task, today = localDateString(new Date())) {
+  let score = task.priority === 'Alta' ? 35 : task.priority === 'Média' ? 18 : 8;
+  if (task.due && task.due < today) score += 50 + Math.min(20, daysSince(task.due));
+  else if (task.due === today) score += 42;
+  else if (task.col === 'today') score += 30;
+  if (task.col === 'inprogress') score += 15;
+  if (task.blocked) score -= 25;
+  return score;
+}
+
+function insightIsVisible(insight) {
+  const dismissedUntil = insightState.dismissedUntil[insight.id];
+  return !dismissedUntil || Number(dismissedUntil) <= Date.now();
+}
+
+function generateInsights() {
+  const rules = appSettings.automations;
+  if (!rules.enabled) return [];
+  const today = localDateString(new Date());
+  const insights = [];
+  const openTasks = S.tasks.filter(task => task.kind !== 'event' && task.col !== 'done');
+  const ranked = openTasks.map(task => ({ task, score: taskInsightScore(task, today) })).sort((a, b) => b.score - a.score).slice(0, 3);
+
+  if (ranked.length) {
+    const titles = ranked.map(item => item.task.title);
+    insights.push({
+      id: `priorities:${today}`, type: 'priorities', tone: 'accent', icon: 'bx-list-check', score: 110,
+      title: 'Prioridades sugeridas',
+      message: `Eu começaria por ${titles.map((title, index) => `${index + 1}. ${title}`).join(' · ')}`,
+      detail: 'A ordem considera prazo, prioridade, status e bloqueios.',
+      action: 'plan-day', actionLabel: 'Planejar meu dia'
+    });
+  }
+
+  if (rules.overdueTasks) {
+    const overdue = openTasks.filter(task => task.due && task.due < today);
+    if (overdue.length) insights.push({
+      id: 'overdue-tasks', type: 'overdue', tone: 'red', icon: 'bx-error-circle', score: 105,
+      title: `${overdue.length} tarefa${overdue.length > 1 ? 's' : ''} vencida${overdue.length > 1 ? 's' : ''}`,
+      message: `${overdue.slice(0, 2).map(task => task.title).join(' e ')}${overdue.length > 2 ? ` e mais ${overdue.length - 2}` : ''} precisam ser renegociadas ou concluídas.`,
+      action: 'tasks', actionLabel: 'Revisar tarefas'
+    });
+  }
+
+  if (rules.staleProjects) {
+    S.projects.filter(project => project.status === 'Em desenvolvimento').map(project => {
+      const activity = projectLastActivity(project);
+      return { project, days: activity ? daysSince(activity.toISOString()) : 999 };
+    }).filter(item => item.days >= rules.staleProjectDays).sort((a, b) => b.days - a.days).slice(0, 3).forEach(item => {
+      insights.push({
+        id: `stale-project:${item.project.id}`, type: 'stale-project', tone: 'amber', icon: 'bx-folder-minus', score: 85 + Math.min(item.days, 20),
+        title: `${item.project.name} parece parado`,
+        message: `Não encontrei movimentação recente neste projeto há ${item.days === 999 ? 'muito tempo' : `${item.days} dias`}.`,
+        detail: 'Definir uma próxima ação pequena costuma destravar o ritmo.',
+        action: 'project-task', actionLabel: 'Criar próxima tarefa', projectId: item.project.id
+      });
+    });
+  }
+
+  if (rules.crmFollowUps) {
+    const followUps = S.contacts.filter(contact => contact.nextStep && !['Fechado', 'Perdido'].includes(contact.status));
+    if (followUps.length) insights.push({
+      id: 'crm-followups', type: 'crm', tone: 'purple', icon: 'bx-user-voice', score: 78,
+      title: `${followUps.length} follow-up${followUps.length > 1 ? 's' : ''} aguardando`,
+      message: `${followUps.slice(0, 3).map(contact => `${contact.name}: ${contact.nextStep}`).join(' · ')}${followUps.length > 3 ? ` · +${followUps.length - 3}` : ''}`,
+      action: 'crm', actionLabel: 'Abrir CRM'
+    });
+  }
+
+  if (rules.atRiskGoals) {
+    S.goals.filter(goal => goal.status === 'Em risco').slice(0, 2).forEach(goal => insights.push({
+      id: `goal-risk:${goal.id}`, type: 'goal', tone: 'purple', icon: 'bx-target-lock', score: 92,
+      title: 'Meta em risco', message: goal.objective,
+      detail: 'Revise os resultados-chave e escolha uma ação de recuperação.',
+      action: 'goals', actionLabel: 'Revisar meta'
+    }));
+  }
+
+  const now = new Date();
+  if (rules.weeklyReview && [1, 2].includes(now.getDay()) && !S.reviews.some(review => review.weekOf === getWeekStart(now))) {
+    insights.push({ id: `weekly-review:${getWeekStart(now)}`, type: 'review', tone: 'green', icon: 'bx-calendar-week', score: 72, title: 'Comece a semana com clareza', message: 'Sua revisão semanal ainda não foi registrada.', action: 'review', actionLabel: 'Fazer revisão' });
+  }
+  if (rules.dailyWrap && now.getHours() >= 17) {
+    const remainingToday = openTasks.filter(task => task.due === today || task.col === 'today');
+    if (remainingToday.length) insights.push({ id: `daily-wrap:${today}`, type: 'wrap', tone: 'blue', icon: 'bx-sunset', score: 70, title: 'Antes de encerrar o dia', message: `${remainingToday.length} tarefa${remainingToday.length > 1 ? 's' : ''} de hoje ainda ${remainingToday.length > 1 ? 'estão' : 'está'} aberta${remainingToday.length > 1 ? 's' : ''}.`, action: 'tasks', actionLabel: 'Fazer fechamento' });
+  }
+
+  return insights.filter(insightIsVisible).sort((a, b) => b.score - a.score);
+}
+
+function runConfiguredAutomations(force = false) {
+  const rules = appSettings.automations;
+  const today = localDateString(new Date());
+  if (!rules.enabled || (!force && insightState.lastAutomationDate === today)) return;
+  if (rules.overdueTasks && rules.overdueMove === 'today') {
+    let moved = 0;
+    S.tasks.forEach(task => {
+      if (task.kind !== 'event' && task.col !== 'done' && task.due && task.due < today && task.col !== 'today') {
+        task.col = 'today'; task.updatedAt = new Date().toISOString(); moved += 1;
+      }
+    });
+    if (moved) { saveTasks(); toast(`${moved} tarefa${moved > 1 ? 's vencidas foram movidas' : ' vencida foi movida'} para Hoje.`, 'info'); }
+  }
+  insightState.lastAutomationDate = today;
+  saveInsightState();
+}
+
+function renderJarvisInsights() {
+  const target = document.getElementById('jarvisInsightsList');
+  if (!target) return;
+  const insights = S.activeInsights.slice(0, 5);
+  if (!appSettings.automations.enabled) {
+    target.innerHTML = `<div class="insight-empty"><i class='bx bx-bell-off'></i><div><strong>Jarvis proativo desativado</strong><span>Ative as automações para receber recomendações contextuais.</span></div><button class="panel-action" type="button" onclick="openSettings('automations')">Configurar</button></div>`;
+    return;
+  }
+  if (!insights.length) {
+    target.innerHTML = `<div class="insight-empty"><i class='bx bx-check-circle'></i><div><strong>Nada urgente por aqui</strong><span>O Jarvis continuará observando tarefas, projetos, metas e CRM.</span></div></div>`;
+    return;
+  }
+  target.innerHTML = insights.map(insight => `
+    <article class="insight-card insight-${insight.tone}">
+      <div class="insight-icon"><i class='bx ${insight.icon}'></i></div>
+      <div class="insight-copy"><strong>${escHtml(insight.title)}</strong><p>${escHtml(insight.message)}</p>${insight.detail ? `<small>${escHtml(insight.detail)}</small>` : ''}</div>
+      <div class="insight-actions"><button class="insight-main-action" type="button" onclick="handleInsightAction('${insight.id}')">${escHtml(insight.actionLabel)} <i class='bx bx-right-arrow-alt'></i></button><button class="btn-icon" type="button" onclick="snoozeInsight('${insight.id}')" title="Lembrar mais tarde"><i class='bx bx-time-five'></i></button><button class="btn-icon" type="button" onclick="dismissInsight('${insight.id}')" title="Dispensar"><i class='bx bx-x'></i></button></div>
+    </article>`).join('');
+}
+
+function dismissInsight(id, days = 30) {
+  insightState.dismissedUntil[id] = Date.now() + days * 86400000;
+  saveInsightState();
+  runAutomationCycle({ proactive: false });
+  toast('Recomendação dispensada.', 'info');
+}
+
+function snoozeInsight(id, hours = 4) {
+  insightState.dismissedUntil[id] = Date.now() + hours * 3600000;
+  saveInsightState();
+  document.getElementById('jarvisProactive')?.classList.remove('open');
+  runAutomationCycle({ proactive: false });
+  toast('O Jarvis vai lembrar você mais tarde.', 'info');
+}
+
+function openInsightProjectTask(projectId) {
+  const project = S.projects.find(item => item.id === projectId);
+  if (!project) return navigateTo('projects');
+  openModal('Próxima ação do projeto', taskForm({ project: project.name, priority: project.priority || 'Média', col: 'today', title: `Definir próximo passo — ${project.name}` }), () => {
+    const title = document.getElementById('f-title').value.trim();
+    if (!title) { toast('Título obrigatório.', 'error'); return false; }
+    const now = new Date().toISOString();
+    S.tasks.unshift(readTaskForm({ id: uid(), createdAt: now, updatedAt: now, owner_id: currentUserId, owner_name: currentUserName }));
+    project.updatedAt = now;
+    saveTasks(); saveProjects(); renderDashboard(); toast('Próxima ação criada.');
+    return true;
+  });
+}
+
+function handleInsightAction(id) {
+  const insight = S.activeInsights.find(item => item.id === id);
+  if (!insight) return;
+  if (insight.action === 'plan-day') openDailyPlanner();
+  else if (insight.action === 'project-task') openInsightProjectTask(insight.projectId);
+  else if (insight.action === 'tasks') navigateTo('tasks');
+  else if (insight.action === 'crm') navigateTo('crm');
+  else if (insight.action === 'goals') navigateTo('goals');
+  else if (insight.action === 'review') navigateTo('review');
+}
+
+function showProactiveInsight(insight) {
+  const bubble = document.getElementById('jarvisProactive');
+  const text = document.getElementById('jarvisProactiveText');
+  if (!bubble || !text || !insight) return;
+  bubble.dataset.insightId = insight.id;
+  text.textContent = `${insight.title}: ${insight.message}`;
+  bubble.classList.add('open');
+  const content = `**${insight.title}**\n\n${insight.message}${insight.detail ? `\n\n${insight.detail}` : ''}`;
+  jarvisMessages.push({ role: 'assistant', content, brain: 'local', proactive: true });
+  jarvisGreeted = true;
+  jarvisAppendMsg('assistant', content, 'local');
+}
+
+function runAutomationCycle({ force = false, proactive = true } = {}) {
+  runConfiguredAutomations(force);
+  S.activeInsights = generateInsights();
+  renderJarvisInsights();
+  const top = S.activeInsights[0];
+  if (!proactive || !top || !appSettings.automations.enabled) return;
+  const key = `${localDateString(new Date())}:${top.id}`;
+  if (!force && insightState.lastProactiveKey === key) return;
+  insightState.lastProactiveKey = key;
+  saveInsightState();
+  showProactiveInsight(top);
+}
+
+function initInsights() {
+  document.getElementById('jarvisProactiveClose')?.addEventListener('click', () => {
+    const id = document.getElementById('jarvisProactive')?.dataset.insightId;
+    if (id) dismissInsight(id);
+    document.getElementById('jarvisProactive')?.classList.remove('open');
+  });
+  document.getElementById('jarvisProactiveLater')?.addEventListener('click', () => {
+    const id = document.getElementById('jarvisProactive')?.dataset.insightId;
+    if (id) snoozeInsight(id);
+  });
+  document.getElementById('jarvisProactiveOpen')?.addEventListener('click', event => {
+    event.stopPropagation();
+    document.getElementById('jarvisProactive')?.classList.remove('open');
+    if (!jarvisOpen) jarvisToggle();
+  });
+}
+
 /* ===== DASHBOARD ===== */
 function renderDashboard() {
   const now = new Date();
@@ -1216,6 +1844,9 @@ function renderDashboard() {
 
   renderDailyPlanner();
   renderInbox();
+  S.activeInsights = generateInsights();
+  renderJarvisInsights();
+  applyDashboardPreferences();
 
   // Metrics
   const activeProjs = S.projects.filter(p => p.status === 'Em desenvolvimento').length;
@@ -1394,7 +2025,8 @@ function newProject(defaultCol) {
   openModal('Novo Projeto', projectForm(), () => {
     const name = document.getElementById('f-name').value.trim();
     if (!name) { toast('Nome do projeto é obrigatório.', 'error'); return false; }
-    S.projects.unshift({ id: uid(), name, desc: document.getElementById('f-desc').value.trim(), status: document.getElementById('f-status').value, priority: document.getElementById('f-priority').value, progress: +document.getElementById('f-progress').value, createdAt: new Date().toISOString().slice(0,10), owner_id: currentUserId, owner_name: currentUserName });
+    const now = new Date().toISOString();
+    S.projects.unshift({ id: uid(), name, desc: document.getElementById('f-desc').value.trim(), status: document.getElementById('f-status').value, priority: document.getElementById('f-priority').value, progress: +document.getElementById('f-progress').value, createdAt: now, updatedAt: now, owner_id: currentUserId, owner_name: currentUserName });
     saveProjects(); renderProjects(); renderDashboard(); toast('Projeto criado com sucesso!');
   });
 }
@@ -1405,7 +2037,7 @@ function editProject(id) {
   openModal('Editar Projeto', projectForm(p), () => {
     const name = document.getElementById('f-name').value.trim();
     if (!name) { toast('Nome obrigatório.', 'error'); return false; }
-    Object.assign(p, { name, desc: document.getElementById('f-desc').value.trim(), status: document.getElementById('f-status').value, priority: document.getElementById('f-priority').value, progress: +document.getElementById('f-progress').value });
+    Object.assign(p, { name, desc: document.getElementById('f-desc').value.trim(), status: document.getElementById('f-status').value, priority: document.getElementById('f-priority').value, progress: +document.getElementById('f-progress').value, updatedAt: new Date().toISOString() });
     saveProjects(); renderProjects(); renderDashboard(); toast('Projeto atualizado!');
   });
 }
@@ -1519,6 +2151,7 @@ function toggleTaskDone(id) {
     task.col = 'done';
     createNextTaskOccurrence(task);
   }
+  task.updatedAt = new Date().toISOString();
   saveTasks(); renderTasks(); renderDashboard();
 }
 
@@ -1541,6 +2174,8 @@ function createNextTaskOccurrence(task) {
     previousCol: undefined,
     nextOccurrenceId: undefined,
     recurrenceSourceId: task.id,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
     subtasks: (task.subtasks || []).map(item => ({ ...item, id: uid(), done: false }))
   };
   task.nextOccurrenceId = next.id;
@@ -1634,8 +2269,11 @@ function taskForm(t = {}) {
 }
 
 function readTaskForm(base = {}) {
+  const now = new Date().toISOString();
   return {
     ...base,
+    createdAt: base.createdAt || now,
+    updatedAt: now,
     title: document.getElementById('f-title').value.trim(),
     description: document.getElementById('f-task-description').value.trim(),
     project: document.getElementById('f-project').value,
@@ -1679,7 +2317,7 @@ function delTask(id) {
 
 function moveTask(id, col) {
   const t = S.tasks.find(x => x.id === id);
-  if (t) { t.col = col; saveTasks(); renderTasks(); renderDashboard(); }
+  if (t) { t.col = col; t.updatedAt = new Date().toISOString(); saveTasks(); renderTasks(); renderDashboard(); }
 }
 
 /* ===== IDEAS ===== */
@@ -3131,9 +3769,11 @@ function calGoToday() {
 function buildNotifications() {
   const today = new Date().toISOString().slice(0, 10);
   const notifs = [];
+  const preferences = appSettings.notifications;
+  if (!preferences.enabled) return notifs;
 
   const overdue = S.tasks.filter(t => t.kind !== 'event' && t.col !== 'done' && t.due && t.due < today);
-  if (overdue.length) notifs.push({
+  if (preferences.overdueTasks && overdue.length) notifs.push({
     icon: 'bx-error-circle', color: 'red',
     title: `${overdue.length} tarefa${overdue.length > 1 ? 's' : ''} vencida${overdue.length > 1 ? 's' : ''}`,
     desc: overdue.slice(0, 2).map(t => t.title).join(', ') + (overdue.length > 2 ? ` +${overdue.length - 2}` : ''),
@@ -3141,7 +3781,7 @@ function buildNotifications() {
   });
 
   const dueToday = S.tasks.filter(t => t.kind !== 'event' && t.col !== 'done' && t.due === today);
-  if (dueToday.length) notifs.push({
+  if (preferences.todayTasks && dueToday.length) notifs.push({
     icon: 'bx-calendar-check', color: 'amber',
     title: `${dueToday.length} tarefa${dueToday.length > 1 ? 's' : ''} para hoje`,
     desc: dueToday.slice(0, 2).map(t => t.title).join(', ') + (dueToday.length > 2 ? ` +${dueToday.length - 2}` : ''),
@@ -3149,7 +3789,7 @@ function buildNotifications() {
   });
 
   const pendingHabits = S.habits.filter(h => !h.completions.includes(today));
-  if (pendingHabits.length) notifs.push({
+  if (preferences.pendingHabits && pendingHabits.length) notifs.push({
     icon: 'bx-calendar-x', color: 'blue',
     title: `${pendingHabits.length} hábito${pendingHabits.length > 1 ? 's' : ''} pendente${pendingHabits.length > 1 ? 's' : ''} hoje`,
     desc: pendingHabits.slice(0, 2).map(h => h.name).join(', ') + (pendingHabits.length > 2 ? ` +${pendingHabits.length - 2}` : ''),
@@ -3157,7 +3797,7 @@ function buildNotifications() {
   });
 
   const atRisk = S.goals.filter(g => g.status === 'Em risco');
-  if (atRisk.length) notifs.push({
+  if (preferences.atRiskGoals && atRisk.length) notifs.push({
     icon: 'bx-target-lock', color: 'purple',
     title: `${atRisk.length} meta${atRisk.length > 1 ? 's' : ''} em risco`,
     desc: atRisk.map(g => g.objective).join(', '),
@@ -3180,6 +3820,11 @@ function renderNotifPanel() {
   const list   = document.getElementById('notifList');
   const count  = document.getElementById('notifCount');
   count.textContent = notifs.length;
+
+  if (!appSettings.notifications.enabled) {
+    list.innerHTML = `<div class="notif-empty"><i class='bx bx-bell-off'></i><p>Notificações desativadas</p><button class="panel-action" type="button" onclick="closeNotifPanel();openSettings('notifications')">Configurar alertas</button></div>`;
+    return;
+  }
 
   if (!notifs.length) {
     list.innerHTML = `<div class="notif-empty"><i class='bx bx-check-circle'></i><p>Tudo em dia!</p></div>`;
@@ -3409,21 +4054,27 @@ function checkAccessPassword() {
 }
 
 async function startApp() {
+  loadSettings();
+  loadInsightState();
   await loadProfiles();
   const existingData = await loadAll();
   seedIfEmpty(existingData);
   seedV2(existingData);
   seedNotes(existingData);
   bindEvents();
+  initSettings();
   initBackup();
   initJarvis();
+  initInsights();
   initNotes();
   if (!projectRhythmInterval) {
     projectRhythmInterval = setInterval(() => {
       if (S.section === 'dashboard') renderProjectRhythm();
     }, 1000);
   }
+  if (!insightInterval) insightInterval = setInterval(() => runAutomationCycle(), 15 * 60 * 1000);
   navigateTo('dashboard');
+  setTimeout(() => runAutomationCycle(), 3600);
   setTimeout(() => {
     const loader = document.getElementById('loaderScreen');
     if (loader) { loader.classList.add('out'); setTimeout(() => loader.remove(), 580); }
@@ -3437,11 +4088,13 @@ async function startApp() {
 const COMMAND_CENTER_ACTIONS = [
   { id: 'capture', title: 'Capturar na caixa de entrada', sub: 'Registrar qualquer coisa sem interromper o fluxo', icon: 'bx-edit-alt', keywords: 'capturar inbox entrada lembrar' },
   { id: 'plan-day', title: 'Planejar meu dia', sub: 'Definir intenção e três prioridades', icon: 'bx-sun', keywords: 'planejar hoje prioridades foco' },
+  { id: 'jarvis-insights', title: 'Ver recomendações do Jarvis', sub: 'Prioridades, projetos parados e sinais do workspace', icon: 'bx-bot', keywords: 'jarvis insights recomendacoes projetos parados prioridades' },
+  { id: 'customize-dashboard', title: 'Personalizar Dashboard', sub: 'Reordenar ou ocultar blocos', icon: 'bx-slider-alt', keywords: 'dashboard personalizar widgets organizar' },
   { id: 'new-task', title: 'Criar nova tarefa', sub: 'Adicionar uma tarefa completa', icon: 'bx-check-square', keywords: 'tarefa criar adicionar' },
   { id: 'new-note', title: 'Criar nota rápida', sub: 'Capturar diretamente como nota', icon: 'bx-note', keywords: 'nota criar escrever' },
   { id: 'new-idea', title: 'Registrar uma ideia', sub: 'Capturar diretamente como ideia', icon: 'bx-bulb', keywords: 'ideia criar registrar' },
   { id: 'new-transaction', title: 'Registrar lançamento financeiro', sub: 'Adicionar uma receita ou despesa', icon: 'bx-dollar-circle', keywords: 'financeiro gasto despesa receita transacao' },
-  { id: 'go-backup', title: 'Exportar ou importar backup', sub: 'Levar seus dados para outro dispositivo', icon: 'bx-cloud-download', keywords: 'backup exportar importar json restaurar whatsapp' },
+  { id: 'go-settings', title: 'Abrir Configurações', sub: 'Gerenciar perfil, aparência, alertas, Jarvis e dados', icon: 'bx-cog', keywords: 'configuracoes preferencias perfil aparencia notificacoes backup jarvis' },
   { id: 'go-tasks', title: 'Ir para Tarefas', sub: 'Abrir sua lista de tarefas', icon: 'bx-list-check', keywords: 'navegar tarefas lista' },
   { id: 'go-agenda', title: 'Ir para Agenda', sub: 'Abrir calendário e recorrências', icon: 'bx-calendar', keywords: 'navegar agenda calendario' }
 ];
@@ -3460,11 +4113,13 @@ function runCommand(command) {
   const actions = {
     capture: () => openInboxCapture(),
     'plan-day': () => openDailyPlanner(),
+    'jarvis-insights': () => { navigateTo('dashboard'); document.getElementById('jarvisInsightsList')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); },
+    'customize-dashboard': () => { navigateTo('dashboard'); openDashboardCustomizer(); },
     'new-task': () => newTask(),
     'new-note': () => openInboxCapture('note'),
     'new-idea': () => openInboxCapture('idea'),
     'new-transaction': () => newTransaction(),
-    'go-backup': () => navigateTo('backup'),
+    'go-settings': () => openSettings('profile'),
     'go-tasks': () => navigateTo('tasks'),
     'go-agenda': () => navigateTo('agenda')
   };
@@ -4219,7 +4874,7 @@ const JARVIS_TOOLS = [
         properties: {
           section: {
             type: 'string',
-            enum: ['dashboard','jarvis','projects','tasks','habits','agenda','ideas','goals','crm','financial','review','prompts','notes']
+            enum: ['dashboard','jarvis','projects','tasks','habits','agenda','ideas','goals','crm','financial','review','prompts','notes','settings']
           }
         },
         required: ['section']
@@ -4610,11 +5265,12 @@ async function jarvisRunTool(name, args) {
     }
 
     case 'create_task': {
+      const now = new Date().toISOString();
       const t = {
         id: uid(), title: args.title, description: args.description || '', project: args.project || '',
         priority: args.priority || 'Média', due: args.due || '', col: args.col || 'backlog',
         estimatedMinutes: Math.max(Number(args.estimated_minutes) || 0, 0), blocked: Boolean(args.blocked),
-        recurrence: args.recurrence || 'none', subtasks: [], owner_id: currentUserId, owner_name: currentUserName
+        recurrence: args.recurrence || 'none', subtasks: [], createdAt: now, updatedAt: now, owner_id: currentUserId, owner_name: currentUserName
       };
       S.tasks.push(t);
       saveTasks();
@@ -4627,8 +5283,10 @@ async function jarvisRunTool(name, args) {
       const i = S.tasks.findIndex(t => t.id === args.id);
       if (i === -1) return { success: false, error: 'Tarefa não encontrada' };
       ['title','col','priority','due','project'].forEach(f => { if (args[f] !== undefined) S.tasks[i][f] = args[f]; });
+      S.tasks[i].updatedAt = new Date().toISOString();
       saveTasks();
       renderTasks();
+      renderDashboard();
       return { success: true, task: S.tasks[i] };
     }
 
@@ -4637,6 +5295,7 @@ async function jarvisRunTool(name, args) {
       S.tasks = S.tasks.filter(t => t.id !== args.id);
       saveTasks();
       renderTasks();
+      renderDashboard();
       return { success: S.tasks.length < before };
     }
 
@@ -4695,10 +5354,12 @@ async function jarvisRunTool(name, args) {
       return S.projects.map(p => ({ id: p.id, name: p.name, desc: p.desc, status: p.status, priority: p.priority, progress: p.progress }));
 
     case 'create_project': {
-      const p = { id: uid(), name: args.name, desc: args.desc||'', status: args.status||'Ideia', priority: args.priority||'Média', progress: args.progress||0, createdAt: today };
+      const now = new Date().toISOString();
+      const p = { id: uid(), name: args.name, desc: args.desc||'', status: args.status||'Ideia', priority: args.priority||'Média', progress: args.progress||0, createdAt: now, updatedAt: now };
       S.projects.push(p);
       saveProjects();
       renderProjects(S.projectFilter);
+      renderDashboard();
       return { success: true, project: p };
     }
 
@@ -4952,6 +5613,7 @@ function jarvisBuildHubSnapshot() {
     .sort((a, b) => b[1] - a[1])
     .map(([project, sec]) => `${project}: ${formatWorkTime(sec)}`)
     .join('; ');
+  const currentInsights = generateInsights().slice(0, 6).map(insight => `${insight.title}: ${insight.message}`);
 
   return [
     `Projetos: ${S.projects.length}. Ativos: ${activeProjects.join('; ') || 'nenhum'}.`,
@@ -4960,12 +5622,13 @@ function jarvisBuildHubSnapshot() {
     `Ideias: ${S.ideas.length}. CRM: ${S.contacts.length} contatos. Follow-ups: ${openFollowUps.join('; ') || 'nenhum'}.`,
     `Financeiro realizado: entradas ${fmtCurrency(financialRealized.income)}, saidas ${fmtCurrency(financialRealized.expense)}, saldo ${fmtCurrency(financialRealized.balance)}. Recorrencias: ${S.transactions.filter(isRecurringTransaction).length}. Fluxo previsto em 30 dias: ${fmtCurrency(financialNext30.balance)}.`,
     `Ritmo dos projetos hoje: ${timeByProject || 'nenhum tempo registrado'}. Projeto atual: ${rhythm.timer?.project || rhythm.activeProject || 'nenhum'}.`,
+    `Sinais proativos do Jarvis: ${currentInsights.join('; ') || 'nenhum sinal urgente'}.`,
     `Notas: ${S.notes.filter(n => n.type === 'note').length}. Secao atual: ${sectionMeta[S.section]?.label || S.section}.`
   ].join('\n');
 }
 
 function jarvisBuildSystemPrompt() {
-  return `Voce e o Jarvis, assistente pessoal de Vitor Falcao integrado ao Motion Hub.
+  return `Voce e o Jarvis, assistente pessoal de ${currentUserName} integrado ao Motion Hub.
 
 Papel principal:
 - Seja um assistente generalista inteligente: responda duvidas sobre negocios, tecnologia, produto, marketing, vendas, financas, estudos, estrategia e temas gerais.
@@ -5143,11 +5806,18 @@ async function jarvisTryLocal(text, { fallback = false } = {}) {
   const starts = pattern => pattern.test(normalized);
 
   if (/^(oi|ola|bom dia|boa tarde|boa noite|e ai|jarvis)$/.test(normalized)) {
-    return { handled: true, response: 'Olá, **Vitor**! O cérebro local está ativo. Posso operar tarefas, agenda, hábitos, projetos, financeiro, planejamento diário e navegação mesmo sem o Groq.' };
+    return { handled: true, response: `Olá, **${currentUserName}**! O cérebro local está ativo. Posso operar tarefas, agenda, hábitos, projetos, financeiro, planejamento diário e navegação mesmo sem o Groq.` };
   }
 
   if (/^(ajuda|comandos|o que voce consegue fazer|o que voce faz)$/.test(normalized) || normalized.includes('modo local')) {
     return { handled: true, response: '**Cérebro local disponível sem limites:**\n- Consultar, criar e concluir tarefas\n- Resumir ou planejar seu dia\n- Capturar itens na caixa de entrada\n- Consultar projetos, metas, hábitos e financeiro\n- Registrar receitas e despesas\n- Navegar pelo Motion Hub\n\nPara análises abertas, criatividade e conversas gerais, uso o Groq quando estiver disponível.' };
+  }
+
+  if (/(o que voce (percebeu|recomenda|sugere)|insights?|recomendacoes|projetos?\s+(?:\S+\s+)?parados?|minhas prioridades)/.test(normalized)) {
+    const insights = generateInsights().filter(insight => !/projetos?\s+(?:\S+\s+)?parados?/.test(normalized) || insight.type === 'stale-project').slice(0, 6);
+    return { handled: true, response: insights.length
+      ? `**O que merece sua atenção agora:**\n${insights.map(insight => `- **${insight.title}:** ${insight.message}`).join('\n')}\n\nVocê pode agir nessas recomendações pelo Dashboard.`
+      : 'Não encontrei nenhum sinal importante nesse momento. Seu workspace parece em dia.' };
   }
 
   if (starts(/^(capture|capturar|anote|anotar|guarde|guardar)\b/) && /(caixa|entrada|inbox|lembrete|capture|anote)/.test(normalized)) {
@@ -5180,10 +5850,10 @@ async function jarvisTryLocal(text, { fallback = false } = {}) {
     return { handled: true, response: `Marquei **${found.matches[0].title}** como concluída.` };
   }
 
-  const sectionMap = { dashboard: 'dashboard', inicio: 'dashboard', projetos: 'projects', tarefas: 'tasks', habitos: 'habits', agenda: 'agenda', ideias: 'ideas', metas: 'goals', crm: 'crm', financeiro: 'financial', financas: 'financial', notas: 'notes', jarvis: 'jarvis' };
+  const sectionMap = { dashboard: 'dashboard', inicio: 'dashboard', projetos: 'projects', tarefas: 'tasks', habitos: 'habits', agenda: 'agenda', ideias: 'ideas', metas: 'goals', crm: 'crm', financeiro: 'financial', financas: 'financial', notas: 'notes', jarvis: 'jarvis', configuracoes: 'settings', automacoes: 'settings' };
   if (starts(/^(abra|abrir|va para|ir para|mostre a tela|navegue para)\b/)) {
     const target = Object.entries(sectionMap).find(([label]) => normalized.includes(label));
-    if (target) { navigateTo(target[1]); return { handled: true, response: `Abri **${sectionMeta[target[1]].label}**.` }; }
+    if (target) { if (target[0] === 'automacoes') openSettings('automations'); else navigateTo(target[1]); return { handled: true, response: `Abri **${target[0] === 'automacoes' ? 'Automações' : sectionMeta[target[1]].label}**.` }; }
   }
 
   if (starts(/^(registre|registrar|adicione|adicionar)\b/) && /\b(despesa|gasto|receita)\b/.test(normalized)) {
@@ -5482,17 +6152,16 @@ function jarvisSetBusy(on) {
 }
 
 function jarvisPromptKey() {
-  const key = prompt('Cole sua chave API do Groq (armazenada apenas no seu navegador):\n\nObtê-la em: console.groq.com/keys');
-  if (key?.trim()) {
-    localStorage.setItem(JARVIS_KEY_STORE, key.trim());
-    toast('Chave Groq salva!', 'success');
-  }
+  jarvisOpen = false;
+  document.getElementById('jarvisPanel')?.classList.remove('open');
+  document.getElementById('jarvisBtn')?.classList.remove('active');
+  openSettings('jarvis');
 }
 
 function jarvisGreet() {
   if (jarvisGreeted) return;
   jarvisGreeted = true;
-  jarvisAppendMsg('assistant', 'Olá, **Vitor**! Agora opero com dois cérebros: o **local**, rápido e sem limites para ações no Hub, e o **Groq** para análises e conversas mais abertas.');
+  jarvisAppendMsg('assistant', `Olá, **${currentUserName}**! Agora opero com dois cérebros: o **local**, rápido e sem limites para ações no Hub, e o **Groq** para análises e conversas mais abertas.`);
 }
 
 function jarvisSetBrainStatus(mode = 'hybrid') {
@@ -5518,7 +6187,7 @@ function jarvisToggle() {
   if (jarvisOpen) {
     if (!jarvisGreeted) {
       jarvisGreeted = true;
-      jarvisAppendMsg('assistant', 'Olá, **Vitor**! Agora opero com dois cérebros: o **local**, rápido e sem limites para ações no Hub, e o **Groq** para análises e conversas mais abertas.');
+      jarvisAppendMsg('assistant', `Olá, **${currentUserName}**! Agora opero com dois cérebros: o **local**, rápido e sem limites para ações no Hub, e o **Groq** para análises e conversas mais abertas.`);
     }
     setTimeout(() => document.getElementById('jarvisInput')?.focus(), 120);
   }

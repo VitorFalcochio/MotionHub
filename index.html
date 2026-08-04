@@ -107,8 +107,8 @@
       </a>
       <div class="nav-divider"></div>
       <div class="nav-label">Gestão</div>
-      <a class="nav-item" data-section="backup">
-        <i class='bx bx-cloud-download'></i><span>Backup & Dados</span>
+      <a class="nav-item" data-section="settings">
+        <i class='bx bx-cog'></i><span>Configurações</span>
       </a>
       <a class="nav-item" data-section="financial">
         <i class='bx bx-dollar-circle'></i><span>Financeiro</span>
@@ -125,11 +125,11 @@
     </nav>
 
     <div class="sidebar-footer">
-      <div class="user-card">
-        <div class="user-avatar">V</div>
+      <div class="user-card" id="userCard" role="button" tabindex="0" aria-label="Abrir configurações do perfil">
+        <div class="user-avatar" id="sidebarUserAvatar">V</div>
         <div class="user-info">
-          <span class="user-name">Vitor Falcão</span>
-          <span class="user-role">Founder</span>
+          <span class="user-name" id="sidebarUserName">Vitor Falcão</span>
+          <span class="user-role" id="sidebarUserRole">Founder</span>
         </div>
         <i class='bx bx-dots-horizontal-rounded user-more'></i>
       </div>
@@ -189,17 +189,33 @@
             <h1 class="welcome-title">Bem-vindo ao Motion Hub</h1>
             <p class="welcome-sub">Seu centro de controle para transformar ideias em projetos reais.</p>
           </div>
-          <div class="welcome-right" id="todayDate"></div>
+          <div class="welcome-actions">
+            <button class="dashboard-customize-btn" id="customizeDashboardBtn" type="button"><i class='bx bx-slider-alt'></i><span>Personalizar</span></button>
+            <div class="welcome-right" id="todayDate"></div>
+          </div>
         </div>
 
-        <div id="dailyPlanner"></div>
+        <div class="dashboard-widgets" id="dashboardWidgets">
+          <div class="dashboard-widget dashboard-widget-full" data-dashboard-widget="dailyPlanner" id="dailyPlanner"></div>
 
-        <div class="metrics-grid" id="metricsGrid"></div>
+          <div class="dashboard-widget dashboard-widget-full" data-dashboard-widget="jarvisInsights">
+            <div class="panel jarvis-insights-panel">
+              <div class="panel-head">
+                <div>
+                  <h3 class="panel-title"><i class='bx bx-bot'></i> Jarvis recomenda</h3>
+                  <p class="panel-subtitle">Sinais importantes encontrados no seu workspace.</p>
+                </div>
+                <button class="panel-action" type="button" onclick="openSettings('automations')"><i class='bx bx-cog'></i> Automações</button>
+              </div>
+              <div id="jarvisInsightsList"></div>
+            </div>
+          </div>
 
-        <div class="project-rhythm" id="projectRhythm"></div>
+          <div class="dashboard-widget dashboard-widget-full metrics-grid" data-dashboard-widget="metrics" id="metricsGrid"></div>
 
-        <div class="dash-grid">
-          <div class="dash-main">
+          <div class="dashboard-widget dashboard-widget-full project-rhythm" data-dashboard-widget="projectRhythm" id="projectRhythm"></div>
+
+          <div class="dashboard-widget dashboard-widget-wide" data-dashboard-widget="inbox">
             <div class="panel inbox-panel">
               <div class="panel-head">
                 <div>
@@ -210,22 +226,8 @@
               </div>
               <div id="inboxList"></div>
             </div>
-            <div class="panel">
-              <div class="panel-head">
-                <h3 class="panel-title">Foco da Semana</h3>
-                <span class="badge badge-green">Ativo</span>
-              </div>
-              <div id="weekFocus"></div>
-            </div>
-            <div class="panel">
-              <div class="panel-head">
-                <h3 class="panel-title">Tarefas Prioritárias</h3>
-                <a class="panel-link" data-section="tasks">Ver todas →</a>
-              </div>
-              <div id="priorityTasks"></div>
-            </div>
           </div>
-          <div class="dash-side">
+          <div class="dashboard-widget" data-dashboard-widget="activeProjects">
             <div class="panel">
               <div class="panel-head">
                 <h3 class="panel-title">Projetos em Andamento</h3>
@@ -233,11 +235,31 @@
               </div>
               <div id="activeProjects"></div>
             </div>
+          </div>
+          <div class="dashboard-widget dashboard-widget-wide" data-dashboard-widget="weekFocus">
+            <div class="panel">
+              <div class="panel-head">
+                <h3 class="panel-title">Foco da Semana</h3>
+                <span class="badge badge-green">Ativo</span>
+              </div>
+              <div id="weekFocus"></div>
+            </div>
+          </div>
+          <div class="dashboard-widget" data-dashboard-widget="nextSteps">
             <div class="panel">
               <div class="panel-head">
                 <h3 class="panel-title">Próximos Passos</h3>
               </div>
               <div id="nextSteps"></div>
+            </div>
+          </div>
+          <div class="dashboard-widget dashboard-widget-full" data-dashboard-widget="priorityTasks">
+            <div class="panel">
+              <div class="panel-head">
+                <h3 class="panel-title">Tarefas Prioritárias</h3>
+                <a class="panel-link" data-section="tasks">Ver todas →</a>
+              </div>
+              <div id="priorityTasks"></div>
             </div>
           </div>
         </div>
@@ -423,8 +445,107 @@
         </div>
       </section>
 
-      <!-- ==================== BACKUP & DATA ==================== -->
-      <section class="page" id="section-backup">
+      <!-- ==================== SETTINGS ==================== -->
+      <section class="page" id="section-settings">
+        <div class="settings-header">
+          <div>
+            <span class="settings-eyebrow">Seu workspace, do seu jeito</span>
+            <h1>Configurações</h1>
+            <p>Gerencie sua identidade, preferências, alertas e dados locais.</p>
+          </div>
+        </div>
+
+        <div class="settings-layout">
+          <nav class="settings-tabs" id="settingsTabs" aria-label="Seções das configurações">
+            <button class="settings-tab active" type="button" data-settings-tab="profile"><i class='bx bx-user'></i><span>Perfil</span></button>
+            <button class="settings-tab" type="button" data-settings-tab="appearance"><i class='bx bx-palette'></i><span>Aparência</span></button>
+            <button class="settings-tab" type="button" data-settings-tab="notifications"><i class='bx bx-bell'></i><span>Notificações</span></button>
+            <button class="settings-tab" type="button" data-settings-tab="automations"><i class='bx bx-git-branch'></i><span>Automações</span></button>
+            <button class="settings-tab" type="button" data-settings-tab="jarvis"><i class='bx bx-bot'></i><span>Jarvis</span></button>
+            <button class="settings-tab" type="button" data-settings-tab="data"><i class='bx bx-data'></i><span>Dados</span></button>
+          </nav>
+
+          <div class="settings-content">
+            <div class="settings-pane active" data-settings-pane="profile">
+              <div class="settings-panel-head">
+                <div><h2>Perfil</h2><p>Esta identidade aparece no Hub e nos novos registros que você criar.</p></div>
+              </div>
+              <form class="settings-form" id="profileSettingsForm">
+                <div class="profile-settings-preview">
+                  <div class="profile-preview-avatar" id="profilePreviewAvatar">V</div>
+                  <div><strong id="profilePreviewName">Vitor Falcão</strong><span id="profilePreviewRole">Founder</span></div>
+                </div>
+                <div class="settings-form-grid">
+                  <label class="settings-field"><span>Nome de exibição</span><input id="settingsProfileName" maxlength="60" autocomplete="name" required></label>
+                  <label class="settings-field"><span>Função</span><input id="settingsProfileRole" maxlength="40" placeholder="Ex.: Founder"></label>
+                </div>
+                <fieldset class="settings-fieldset"><legend>Cor do avatar</legend><div class="settings-color-options" id="profileColorOptions"></div></fieldset>
+                <div class="settings-actions"><button class="btn-primary" type="submit"><i class='bx bx-save'></i> Salvar alterações</button></div>
+              </form>
+            </div>
+
+            <div class="settings-pane" data-settings-pane="appearance">
+              <div class="settings-panel-head">
+                <div><h2>Aparência</h2><p>Escolha a cor de destaque usada nas ações e estados ativos.</p></div>
+              </div>
+              <form class="settings-form" id="appearanceSettingsForm">
+                <fieldset class="settings-fieldset"><legend>Cor de destaque</legend><div class="accent-options" id="accentColorOptions"></div></fieldset>
+                <div class="settings-accent-demo"><span>Demonstração</span><button class="btn-primary" type="button"><i class='bx bx-check'></i> Ação principal</button><span class="settings-demo-link"><i class='bx bx-link'></i> Item ativo</span></div>
+                <div class="settings-actions"><button class="btn-primary" type="submit"><i class='bx bx-save'></i> Salvar alterações</button></div>
+              </form>
+            </div>
+
+            <div class="settings-pane" data-settings-pane="notifications">
+              <div class="settings-panel-head">
+                <div><h2>Notificações</h2><p>Escolha quais lembretes aparecem no sino do cabeçalho.</p></div>
+              </div>
+              <form class="settings-form" id="notificationSettingsForm">
+                <label class="settings-toggle settings-toggle-master"><span><i class='bx bx-bell-ring'></i><span><strong>Ativar notificações</strong><small>Controla todos os alertas do Hub.</small></span></span><input type="checkbox" id="settingsNotifEnabled"><span class="toggle-track"></span></label>
+                <div class="settings-toggle-list" id="notificationCategorySettings">
+                  <label class="settings-toggle"><span><i class='bx bx-error-circle'></i><span><strong>Tarefas vencidas</strong><small>Pendências com prazo anterior a hoje.</small></span></span><input type="checkbox" data-notification="overdueTasks"><span class="toggle-track"></span></label>
+                  <label class="settings-toggle"><span><i class='bx bx-calendar-check'></i><span><strong>Tarefas para hoje</strong><small>Itens que precisam de atenção no dia.</small></span></span><input type="checkbox" data-notification="todayTasks"><span class="toggle-track"></span></label>
+                  <label class="settings-toggle"><span><i class='bx bx-calendar-x'></i><span><strong>Hábitos pendentes</strong><small>Hábitos ainda não concluídos hoje.</small></span></span><input type="checkbox" data-notification="pendingHabits"><span class="toggle-track"></span></label>
+                  <label class="settings-toggle"><span><i class='bx bx-target-lock'></i><span><strong>Metas em risco</strong><small>Objetivos marcados com atenção necessária.</small></span></span><input type="checkbox" data-notification="atRiskGoals"><span class="toggle-track"></span></label>
+                </div>
+                <div class="settings-actions"><button class="btn-primary" type="submit"><i class='bx bx-save'></i> Salvar alterações</button></div>
+              </form>
+            </div>
+
+            <div class="settings-pane" data-settings-pane="automations">
+              <div class="settings-panel-head">
+                <div><h2>Automações do Jarvis</h2><p>Regras locais que analisam o workspace e chamam sua atenção na hora certa.</p></div>
+                <span class="settings-status configured"><i class='bx bx-shield-quarter'></i> Funciona sem Groq</span>
+              </div>
+              <form class="settings-form" id="automationSettingsForm">
+                <label class="settings-toggle settings-toggle-master"><span><i class='bx bx-bot'></i><span><strong>Jarvis proativo</strong><small>Exibe recomendações no Dashboard e mensagens espontâneas.</small></span></span><input type="checkbox" id="settingsAutomationEnabled"><span class="toggle-track"></span></label>
+                <div class="automation-rule-grid" id="automationRuleSettings">
+                  <label class="settings-toggle"><span><i class='bx bx-folder-minus'></i><span><strong>Projetos parados</strong><small>Detecta projetos ativos sem movimentação recente.</small></span></span><input type="checkbox" data-automation="staleProjects"><span class="toggle-track"></span></label>
+                  <label class="settings-toggle"><span><i class='bx bx-error-circle'></i><span><strong>Tarefas vencidas</strong><small>Sugere prioridades e recupera pendências.</small></span></span><input type="checkbox" data-automation="overdueTasks"><span class="toggle-track"></span></label>
+                  <label class="settings-toggle"><span><i class='bx bx-user-voice'></i><span><strong>Follow-ups do CRM</strong><small>Lembra contatos que possuem um próximo passo aberto.</small></span></span><input type="checkbox" data-automation="crmFollowUps"><span class="toggle-track"></span></label>
+                  <label class="settings-toggle"><span><i class='bx bx-target-lock'></i><span><strong>Metas em risco</strong><small>Sugere um plano quando um objetivo pede atenção.</small></span></span><input type="checkbox" data-automation="atRiskGoals"><span class="toggle-track"></span></label>
+                  <label class="settings-toggle"><span><i class='bx bx-calendar-week'></i><span><strong>Planejamento semanal</strong><small>Lembra da revisão no início de cada semana.</small></span></span><input type="checkbox" data-automation="weeklyReview"><span class="toggle-track"></span></label>
+                  <label class="settings-toggle"><span><i class='bx bx-sunset'></i><span><strong>Fechamento do dia</strong><small>Resume pendências no fim do expediente.</small></span></span><input type="checkbox" data-automation="dailyWrap"><span class="toggle-track"></span></label>
+                </div>
+                <div class="settings-form-grid automation-options">
+                  <label class="settings-field"><span>Projeto parado após</span><div class="input-suffix"><input id="settingsStaleProjectDays" type="number" min="2" max="90" step="1"><span>dias</span></div></label>
+                  <label class="settings-field"><span>Organização automática</span><select id="settingsOverdueMove" class="form-select"><option value="off">Somente sugerir</option><option value="today">Mover vencidas para Hoje</option></select></label>
+                </div>
+                <div class="settings-actions"><button class="btn-primary" type="submit"><i class='bx bx-save'></i> Salvar alterações</button></div>
+              </form>
+            </div>
+
+            <div class="settings-pane" data-settings-pane="jarvis">
+              <div class="settings-panel-head">
+                <div><h2>Jarvis</h2><p>Gerencie a chave Groq armazenada somente neste navegador.</p></div>
+                <span class="settings-status" id="jarvisKeyStatus"></span>
+              </div>
+              <form class="settings-form" id="jarvisSettingsForm">
+                <label class="settings-field"><span>Chave API Groq</span><div class="settings-secret-field"><input id="settingsGroqKey" type="password" autocomplete="off" placeholder="Cole uma nova chave para configurar ou substituir"><button class="btn-icon" id="toggleGroqKeyVisibility" type="button" aria-label="Mostrar ou ocultar chave"><i class='bx bx-show'></i></button></div><small>A chave atual nunca é exibida nem exportada no backup.</small></label>
+                <div class="settings-actions settings-actions-split"><button class="btn-danger" id="removeGroqKeyBtn" type="button"><i class='bx bx-trash'></i> Remover chave</button><button class="btn-primary" type="submit"><i class='bx bx-save'></i> Salvar alterações</button></div>
+              </form>
+            </div>
+
+            <div class="settings-pane settings-data-pane" data-settings-pane="data">
         <div class="backup-hero">
           <div class="backup-hero-icon"><i class='bx bx-cloud-download'></i></div>
           <div>
@@ -488,6 +609,9 @@
         <div class="backup-tip">
           <i class='bx bxl-whatsapp'></i>
           <div><strong>Do PC para o celular</strong><span>Baixe o JSON, envie para você mesmo no WhatsApp e selecione o arquivo nesta tela no outro aparelho.</span></div>
+        </div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -582,6 +706,12 @@
 <div class="toasts" id="toasts"></div>
 
 <!-- Jarvis -->
+<div class="jarvis-proactive" id="jarvisProactive" role="status" aria-live="polite">
+  <button class="jarvis-proactive-close" id="jarvisProactiveClose" type="button" aria-label="Dispensar recomendação"><i class='bx bx-x'></i></button>
+  <div class="jarvis-proactive-head"><span><i class='bx bx-bot'></i></span><strong>Jarvis percebeu algo</strong></div>
+  <p id="jarvisProactiveText"></p>
+  <div class="jarvis-proactive-actions"><button class="btn-ghost" id="jarvisProactiveLater" type="button">Mais tarde</button><button class="btn-primary" id="jarvisProactiveOpen" type="button">Ver recomendação</button></div>
+</div>
 <button class="jarvis-fab" id="jarvisBtn" title="Jarvis — Assistente">
   <i class='bx bx-bot'></i>
 </button>
