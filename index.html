@@ -107,6 +107,9 @@
       </a>
       <div class="nav-divider"></div>
       <div class="nav-label">Gestão</div>
+      <a class="nav-item" data-section="backup">
+        <i class='bx bx-cloud-download'></i><span>Backup & Dados</span>
+      </a>
       <a class="nav-item" data-section="financial">
         <i class='bx bx-dollar-circle'></i><span>Financeiro</span>
       </a>
@@ -417,6 +420,74 @@
               </div>
             </div>
           </div>
+        </div>
+      </section>
+
+      <!-- ==================== BACKUP & DATA ==================== -->
+      <section class="page" id="section-backup">
+        <div class="backup-hero">
+          <div class="backup-hero-icon"><i class='bx bx-cloud-download'></i></div>
+          <div>
+            <span class="backup-eyebrow">Seus dados, com você</span>
+            <h1>Backup & Restauração</h1>
+            <p>Leve o Motion Hub do computador para o celular usando um único arquivo JSON.</p>
+          </div>
+        </div>
+
+        <div class="backup-grid">
+          <article class="backup-action-card backup-export-card">
+            <div class="backup-card-icon"><i class='bx bx-download'></i></div>
+            <div class="backup-card-copy">
+              <span class="backup-step">01 · Salvar</span>
+              <h2>Exportar backup</h2>
+              <p>Gera uma cópia completa e versionada para guardar ou enviar pelo WhatsApp.</p>
+            </div>
+            <button class="btn-primary backup-main-action" id="backupExportBtn" type="button">
+              <i class='bx bx-download'></i> Baixar arquivo JSON
+            </button>
+          </article>
+
+          <article class="backup-action-card backup-import-card">
+            <div class="backup-card-icon"><i class='bx bx-upload'></i></div>
+            <div class="backup-card-copy">
+              <span class="backup-step">02 · Restaurar</span>
+              <h2>Importar backup</h2>
+              <p>Selecione o JSON recebido, confira a prévia e escolha entre mesclar ou substituir.</p>
+            </div>
+            <button class="btn-ghost backup-main-action" id="backupImportBtn" type="button">
+              <i class='bx bx-file'></i> Escolher backup
+            </button>
+            <input id="backupFileInput" type="file" accept="application/json,.json" hidden>
+          </article>
+        </div>
+
+        <div class="backup-info-grid">
+          <article class="panel backup-included-panel">
+            <div class="panel-head">
+              <div>
+                <h3 class="panel-title">O que entra no backup</h3>
+                <p class="panel-subtitle">Dados úteis, sem carregar credenciais.</p>
+              </div>
+              <span class="badge badge-green">Completo</span>
+            </div>
+            <div class="backup-scope-list" id="backupScopeList"></div>
+          </article>
+
+          <article class="panel backup-safety-panel">
+            <div class="panel-head">
+              <div>
+                <h3 class="panel-title">Rede de segurança</h3>
+                <p class="panel-subtitle">Criada automaticamente antes de importar.</p>
+              </div>
+              <i class='bx bx-shield-quarter backup-shield'></i>
+            </div>
+            <div id="backupSafetyStatus"></div>
+          </article>
+        </div>
+
+        <div class="backup-tip">
+          <i class='bx bxl-whatsapp'></i>
+          <div><strong>Do PC para o celular</strong><span>Baixe o JSON, envie para você mesmo no WhatsApp e selecione o arquivo nesta tela no outro aparelho.</span></div>
         </div>
       </section>
 
