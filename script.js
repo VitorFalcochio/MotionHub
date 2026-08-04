@@ -19,6 +19,7 @@ const S = {
   modalSave: null,
   confirmOk: null,
   projectFilter: 'all',
+  taskFilter: 'all',
   promptFilter: 'all',
   finFilter: 'all'
 };
@@ -339,7 +340,7 @@ function renderSection(section) {
   else if (section === 'jarvis') renderJarvisPage();
   else if (section === 'dashboard') renderDashboard();
   else if (section === 'projects') renderProjects();
-  else if (section === 'tasks') renderKanban();
+  else if (section === 'tasks') renderTasks();
   else if (section === 'habits') renderHabits();
   else if (section === 'ideas') renderIdeas();
   else if (section === 'goals') renderGoals();
@@ -821,7 +822,7 @@ function renderDashboard() {
           <div class="focus-text">${escHtml(t.title)}</div>
           <span class="focus-proj">${escHtml(t.project || '—')}</span>
         </div>`).join('')
-    : '<div class="focus-item"><div class="focus-text" style="color:var(--text3)">Nenhuma tarefa ativa. Adicione tarefas no Kanban.</div></div>';
+    : '<div class="focus-item"><div class="focus-text" style="color:var(--text3)">Nenhuma tarefa ativa. Adicione uma tarefa na lista.</div></div>';
 
   // Priority Tasks
   const hiPrio = S.tasks.filter(t => t.kind !== 'event' && t.priority === 'Alta' && t.col !== 'done').slice(0, 5);
@@ -851,7 +852,7 @@ function renderDashboard() {
   // Next Steps
   const steps = [
     'Revisar progresso dos projetos ativos',
-    'Atualizar status das tarefas no Kanban',
+    'Atualizar status das tarefas na lista',
     'Fazer contato com leads do CRM',
     'Registrar novos gastos e receitas',
     'Capturar novas ideias de negócio'
@@ -972,44 +973,91 @@ function delProject(id) {
   });
 }
 
-/* ===== TASKS (KANBAN) ===== */
+/* ===== TASKS (LIST) ===== */
 const colLabels = { backlog: 'Backlog', today: 'Hoje', inprogress: 'Em andamento', done: 'Concluído' };
+const taskStatusMeta = {
+  backlog:    { label: 'Backlog', icon: 'bx-archive', tone: 'gray' },
+  today:      { label: 'Hoje', icon: 'bx-sun', tone: 'blue' },
+  inprogress: { label: 'Em andamento', icon: 'bx-loader-circle', tone: 'amber' },
+  done:       { label: 'Concluídas', icon: 'bx-check-circle', tone: 'green' }
+};
 
-function renderKanban() {
-  ['backlog','today','inprogress','done'].forEach(col => {
-    const tasks = S.tasks.filter(t => t.kind !== 'event' && t.col === col);
-    document.getElementById('ct-' + col).textContent = tasks.length;
-    const q = (document.getElementById('globalSearch').value || '').toLowerCase();
-    const filtered = q && S.section === 'tasks' ? tasks.filter(t => t.title.toLowerCase().includes(q)) : tasks;
-    document.getElementById('col-' + col).innerHTML = filtered.map(t => taskCard(t)).join('') || '';
-  });
+function renderTasks() {
+  const allTasks = S.tasks.filter(t => t.kind !== 'event');
+  const counts = Object.fromEntries(['backlog','today','inprogress','done'].map(col => [col, allTasks.filter(t => t.col === col).length]));
+  const allCount = document.getElementById('ct-all');
+  if (!allCount) return;
+  allCount.textContent = allTasks.length;
+  Object.entries(counts).forEach(([col, count]) => { document.getElementById('ct-' + col).textContent = count; });
+
+  document.getElementById('taskSummary').innerHTML = ['backlog','today','inprogress','done'].map(col => {
+    const meta = taskStatusMeta[col];
+    return `<button class="task-stat ${meta.tone}" type="button" onclick="setTaskFilter('${col}')">
+      <span class="task-stat-icon"><i class='bx ${meta.icon}'></i></span>
+      <span><strong>${counts[col]}</strong><small>${meta.label}</small></span>
+    </button>`;
+  }).join('');
+
+  document.querySelectorAll('.task-filter').forEach(btn => btn.classList.toggle('active', btn.dataset.filter === S.taskFilter));
+  const q = (document.getElementById('globalSearch')?.value || '').trim().toLowerCase();
+  let tasks = S.taskFilter === 'all' ? [...allTasks] : allTasks.filter(t => t.col === S.taskFilter);
+  if (q) tasks = tasks.filter(t => t.title.toLowerCase().includes(q) || (t.project || '').toLowerCase().includes(q));
+
+  const statusOrder = { today: 0, inprogress: 1, backlog: 2, done: 3 };
+  const priorityOrder = { 'Alta': 0, 'Média': 1, 'Baixa': 2 };
+  tasks.sort((a, b) => (statusOrder[a.col] ?? 9) - (statusOrder[b.col] ?? 9)
+    || (priorityOrder[a.priority] ?? 9) - (priorityOrder[b.priority] ?? 9)
+    || (a.due || '9999-12-31').localeCompare(b.due || '9999-12-31'));
+
+  document.getElementById('taskList').innerHTML = tasks.length
+    ? tasks.map(taskListItem).join('')
+    : `<div class="task-list-empty"><i class='bx bx-check-circle'></i><strong>Nenhuma tarefa por aqui</strong><span>${q ? 'Tente outro termo de busca.' : 'Adicione uma tarefa ou escolha outro filtro.'}</span></div>`;
 }
 
-function taskCard(t) {
+function setTaskFilter(filter) {
+  S.taskFilter = filter;
+  renderTasks();
+}
+
+function taskListItem(t) {
   const now = new Date(); now.setHours(0,0,0,0);
   const dueDate = t.due ? new Date(t.due + 'T00:00:00') : null;
   const isOverdue = dueDate && dueDate < now && t.col !== 'done';
+  const isDone = t.col === 'done';
   return `
-    <div class="task-card" data-id="${t.id}">
-      <div class="task-card-title">${escHtml(t.title)}</div>
-      <div class="task-card-meta">
-        <div class="task-card-tags">
-          <span class="prio ${prioClass(t.priority)}">${escHtml(t.priority)}</span>
-          ${t.project ? `<span class="task-proj-tag">${escHtml(t.project)}</span>` : ''}
-          ${ownerBadge(t)}
-        </div>
-        <div class="task-card-actions">
-          <button class="btn-icon green" onclick="editTask('${t.id}')"><i class='bx bx-edit-alt'></i></button>
-          <button class="btn-icon danger" onclick="delTask('${t.id}')"><i class='bx bx-trash'></i></button>
+    <div class="task-list-item${isDone ? ' is-done' : ''}" data-id="${t.id}">
+      <div class="task-list-main">
+        <button class="task-complete" type="button" onclick="toggleTaskDone('${t.id}')" aria-label="${isDone ? 'Reabrir' : 'Concluir'} tarefa" aria-pressed="${isDone}">
+          <i class='bx ${isDone ? 'bx-check' : ''}'></i>
+        </button>
+        <button class="task-list-title" type="button" onclick="editTask('${t.id}')">${escHtml(t.title)}</button>
+        <div class="task-list-mobile-meta">
+          ${t.project ? `<span><i class='bx bx-folder'></i>${escHtml(t.project)}</span>` : ''}
+          ${t.due ? `<span class="${isOverdue ? 'overdue' : ''}"><i class='bx bx-calendar'></i>${fmtDate(t.due)}</span>` : ''}
         </div>
       </div>
-      ${t.due ? `<div class="task-due${isOverdue?' overdue':''}"><i class='bx bx-calendar'></i>${fmtDate(t.due)}${isOverdue?' · Atrasada':''}</div>` : ''}
-      <div style="margin-top:8px">
-        <select class="form-select" style="font-size:11px;padding:4px 24px 4px 8px;height:auto" onchange="moveTask('${t.id}',this.value)">
+      <div class="task-list-project">${t.project ? `<span class="task-proj-tag">${escHtml(t.project)}</span>` : '<span class="task-muted">Sem projeto</span>'}</div>
+      <div class="task-list-date${isOverdue ? ' overdue' : ''}">${t.due ? `<i class='bx bx-calendar'></i>${fmtDate(t.due)}${isOverdue ? '<small>Atrasada</small>' : ''}` : '<span class="task-muted">Sem prazo</span>'}</div>
+      <div><span class="prio ${prioClass(t.priority)}">${escHtml(t.priority)}</span></div>
+      <div>
+        <select class="task-status-select status-${t.col}" aria-label="Status da tarefa" onchange="moveTask('${t.id}',this.value)">
           ${Object.entries(colLabels).map(([k,v]) => `<option value="${k}"${t.col===k?' selected':''}>${v}</option>`).join('')}
         </select>
       </div>
+      <div class="task-list-actions">
+        ${ownerBadge(t)}
+        <button class="btn-icon green" type="button" onclick="editTask('${t.id}')" aria-label="Editar tarefa"><i class='bx bx-edit-alt'></i></button>
+        <button class="btn-icon danger" type="button" onclick="delTask('${t.id}')" aria-label="Excluir tarefa"><i class='bx bx-trash'></i></button>
+      </div>
     </div>`;
+}
+
+function toggleTaskDone(id) {
+  const task = S.tasks.find(t => t.id === id);
+  if (!task) return;
+  if (task.col === 'done') task.col = task.previousCol && task.previousCol !== 'done' ? task.previousCol : 'backlog';
+  else { task.previousCol = task.col; task.col = 'done'; }
+  saveTasks(); renderTasks(); renderDashboard();
 }
 
 function taskForm(t = {}) {
@@ -1036,7 +1084,7 @@ function taskForm(t = {}) {
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label class="form-label">Coluna</label>
+        <label class="form-label">Status</label>
         <select class="form-select" id="f-col">
           ${Object.entries(colLabels).map(([k,v]) => `<option value="${k}"${(t.col||'backlog')===k?' selected':''}>${v}</option>`).join('')}
         </select>
@@ -1055,7 +1103,7 @@ function newTask(col) {
     const title = document.getElementById('f-title').value.trim();
     if (!title) { toast('Título obrigatório.', 'error'); return false; }
     S.tasks.unshift({ id: uid(), title, project: document.getElementById('f-project').value, priority: document.getElementById('f-priority').value, col: document.getElementById('f-col').value, due: document.getElementById('f-due').value, owner_id: currentUserId, owner_name: currentUserName });
-    saveTasks(); renderKanban(); renderDashboard(); if (S.section === 'agenda') renderAgenda(); toast('Tarefa criada!');
+    saveTasks(); renderTasks(); renderDashboard(); if (S.section === 'agenda') renderAgenda(); toast('Tarefa criada!');
   });
 }
 
@@ -1066,20 +1114,20 @@ function editTask(id) {
     const title = document.getElementById('f-title').value.trim();
     if (!title) { toast('Título obrigatório.', 'error'); return false; }
     Object.assign(t, { title, project: document.getElementById('f-project').value, priority: document.getElementById('f-priority').value, col: document.getElementById('f-col').value, due: document.getElementById('f-due').value });
-    saveTasks(); renderKanban(); renderDashboard(); if (S.section === 'agenda') renderAgenda(); toast('Tarefa atualizada!');
+    saveTasks(); renderTasks(); renderDashboard(); if (S.section === 'agenda') renderAgenda(); toast('Tarefa atualizada!');
   });
 }
 
 function delTask(id) {
   openConfirm(() => {
     S.tasks = S.tasks.filter(x => x.id !== id);
-    saveTasks(); renderKanban(); renderDashboard(); if (S.section === 'agenda') renderAgenda(); toast('Tarefa excluída.', 'info');
+    saveTasks(); renderTasks(); renderDashboard(); if (S.section === 'agenda') renderAgenda(); toast('Tarefa excluída.', 'info');
   });
 }
 
 function moveTask(id, col) {
   const t = S.tasks.find(x => x.id === id);
-  if (t) { t.col = col; saveTasks(); renderKanban(); renderDashboard(); }
+  if (t) { t.col = col; saveTasks(); renderTasks(); renderDashboard(); }
 }
 
 /* ===== IDEAS ===== */
@@ -2710,9 +2758,9 @@ function bindEvents() {
     });
   });
 
-  // Kanban "add task" buttons
-  document.querySelectorAll('.k-add').forEach(btn => {
-    btn.addEventListener('click', () => newTask(btn.dataset.col));
+  // Task list filters
+  document.querySelectorAll('.task-filter').forEach(btn => {
+    btn.addEventListener('click', () => setTaskFilter(btn.dataset.filter));
   });
 
   // Global search
@@ -2721,6 +2769,7 @@ function bindEvents() {
     if (e.key === 'Escape') {
       e.target.value = '';
       globalSearchClose();
+      if (S.section === 'tasks') renderTasks();
     }
   });
   document.addEventListener('click', e => {
@@ -2819,6 +2868,8 @@ function globalSearchHandler() {
   const panel = document.getElementById('searchResults');
   if (!panel) return;
 
+  if (S.section === 'tasks') renderTasks();
+
   if (q.length < 2) { globalSearchClose(); return; }
 
   const groups = [];
@@ -2880,9 +2931,9 @@ function globalSearchHandler() {
   panel.querySelectorAll('.search-result-item').forEach(el => {
     el.addEventListener('click', () => {
       const { section, noteId } = el.dataset;
+      document.getElementById('globalSearch').value = '';
       navigateTo(section);
       if (section === 'notes' && noteId) setTimeout(() => notesOpenNote(noteId), 60);
-      document.getElementById('globalSearch').value = '';
       globalSearchClose();
     });
   });
@@ -3328,7 +3379,7 @@ const JARVIS_TOOLS = [
     type: 'function',
     function: {
       name: 'list_tasks',
-      description: 'Lista tarefas com filtro opcional por coluna do kanban.',
+      description: 'Lista tarefas com filtro opcional por status.',
       parameters: {
         type: 'object',
         properties: {
@@ -3341,7 +3392,7 @@ const JARVIS_TOOLS = [
     type: 'function',
     function: {
       name: 'create_task',
-      description: 'Cria uma nova tarefa no kanban.',
+      description: 'Cria uma nova tarefa na lista.',
       parameters: {
         type: 'object',
         properties: {
@@ -3946,7 +3997,7 @@ async function jarvisRunTool(name, args) {
       const t = { id: uid(), title: args.title, project: args.project||'', priority: args.priority||'Média', due: args.due||'', col: args.col||'backlog' };
       S.tasks.push(t);
       saveTasks();
-      renderKanban();
+      renderTasks();
       return { success: true, task: t };
     }
 
@@ -3955,7 +4006,7 @@ async function jarvisRunTool(name, args) {
       if (i === -1) return { success: false, error: 'Tarefa não encontrada' };
       ['title','col','priority','due','project'].forEach(f => { if (args[f] !== undefined) S.tasks[i][f] = args[f]; });
       saveTasks();
-      renderKanban();
+      renderTasks();
       return { success: true, task: S.tasks[i] };
     }
 
@@ -3963,7 +4014,7 @@ async function jarvisRunTool(name, args) {
       const before = S.tasks.length;
       S.tasks = S.tasks.filter(t => t.id !== args.id);
       saveTasks();
-      renderKanban();
+      renderTasks();
       return { success: S.tasks.length < before };
     }
 
