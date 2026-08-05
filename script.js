@@ -17,6 +17,11 @@ const S = {
   notes: [],
   inbox: [],
   dailyPlans: [],
+  studyPrograms: [],
+  studyTerms: [],
+  subjects: [],
+  assessments: [],
+  studySessions: [],
   profiles: {},
   settingsTab: 'profile',
   activeInsights: [],
@@ -25,7 +30,12 @@ const S = {
   projectFilter: 'all',
   taskFilter: 'all',
   promptFilter: 'all',
-  finFilter: 'all'
+  finFilter: 'all',
+  studyView: 'overview',
+  studyTermId: null,
+  studyProgramFilter: 'all',
+  studySubjectFilter: 'all',
+  studyAssessmentFilter: 'all'
 };
 let _krCounter = 0;
 let _selectedMood = 3;
@@ -40,7 +50,7 @@ const INSIGHT_STATE_KEY = 'motion_hub_insight_state_v1';
 const PROJECT_RHYTHM_KEY = 'motion_project_rhythm_v1';
 const ACCESS_PASSWORD = '@Vitor0911071234';
 const ACCESS_SESSION_KEY = 'motion_hub_access_ok_v1';
-const DATA_FIELDS = ['projects', 'tasks', 'ideas', 'contacts', 'transactions', 'docs', 'habits', 'goals', 'reviews', 'notes', 'inbox', 'dailyPlans'];
+const DATA_FIELDS = ['projects', 'tasks', 'ideas', 'contacts', 'transactions', 'docs', 'habits', 'goals', 'reviews', 'notes', 'inbox', 'dailyPlans', 'studyPrograms', 'studyTerms', 'subjects', 'assessments', 'studySessions'];
 const BACKUP_FORMAT = 'motion-hub-backup';
 const BACKUP_VERSION = 2;
 const BACKUP_SAFETY_KEY = 'motion_hub_safety_backup_v1';
@@ -274,6 +284,11 @@ function saveReviews()      { syncData({ reviews:      S.reviews }); }
 function saveNotes()        { syncData({ notes:        S.notes }); }
 function saveInbox()        { syncData({ inbox:        S.inbox }); }
 function saveDailyPlans()   { syncData({ dailyPlans:   S.dailyPlans }); }
+function saveStudyPrograms(){ syncData({ studyPrograms:S.studyPrograms }); }
+function saveStudyTerms()   { syncData({ studyTerms:   S.studyTerms }); }
+function saveSubjects()     { syncData({ subjects:     S.subjects }); }
+function saveAssessments()  { syncData({ assessments:  S.assessments }); }
+function saveStudySessions(){ syncData({ studySessions:S.studySessions }); }
 
 /* ===== BACKUP & RESTORE ===== */
 function backupSafeClone(value) {
@@ -419,7 +434,9 @@ function backupSummaryRows(backup) {
   const fields = [
     ['projects', 'Projetos'], ['tasks', 'Tarefas'], ['inbox', 'Caixa de entrada'],
     ['habits', 'Hábitos'], ['goals', 'Metas'], ['notes', 'Notas'],
-    ['transactions', 'Lançamentos'], ['contacts', 'Contatos']
+    ['transactions', 'Lançamentos'], ['contacts', 'Contatos'],
+    ['studyPrograms', 'Cursos'], ['studyTerms', 'Períodos'], ['subjects', 'Matérias'],
+    ['assessments', 'Avaliações'], ['studySessions', 'Sessões de estudo']
   ];
   return fields.map(([key, label]) => `<div class="backup-preview-stat"><strong>${counts[key] || 0}</strong><span>${label}</span></div>`).join('');
 }
@@ -894,6 +911,7 @@ const sectionMeta = {
   dashboard:  { label: 'Dashboard',        btnLabel: null },
   jarvis:     { label: 'Jarvis',           btnLabel: null },
   agenda:     { label: 'Agenda',           btnLabel: 'Novo Evento' },
+  studies:    { label: 'Estudos',          btnLabel: 'Nova Matéria' },
   projects:   { label: 'Projetos',          btnLabel: 'Novo Projeto' },
   tasks:      { label: 'Tarefas',           btnLabel: 'Nova Tarefa' },
   habits:     { label: 'Hábitos',           btnLabel: 'Novo Hábito' },
@@ -907,7 +925,7 @@ const sectionMeta = {
   settings:   { label: 'Configurações',     btnLabel: null }
 };
 
-const sectionOrder = ['dashboard', 'projects', 'tasks', 'habits', 'agenda', 'jarvis', 'ideas', 'goals', 'crm', 'financial', 'review', 'prompts', 'notes', 'settings'];
+const sectionOrder = ['dashboard', 'projects', 'tasks', 'habits', 'agenda', 'studies', 'jarvis', 'ideas', 'goals', 'crm', 'financial', 'review', 'prompts', 'notes', 'settings'];
 
 function navigateTo(section, direction = null) {
   const contentArea = document.querySelector('.content-area');
@@ -995,6 +1013,7 @@ function renderSection(section) {
   else if (section === 'projects') renderProjects();
   else if (section === 'tasks') renderTasks();
   else if (section === 'habits') renderHabits();
+  else if (section === 'studies') renderStudies();
   else if (section === 'ideas') renderIdeas();
   else if (section === 'goals') renderGoals();
   else if (section === 'crm') renderCRM();
@@ -2932,6 +2951,422 @@ function copyDoc(id) {
   });
 }
 
+/* ====================================================
+   ESTUDOS
+   ==================================================== */
+
+let studyTimerInterval = null;
+const STUDY_COLORS = ['#4D8EFF', '#9B6DFF', '#22C55E', '#F5A623', '#EC4899', '#F97316', '#14B8A6', '#FF4757'];
+
+function ensureStudyPrograms() {
+  if (S.studyPrograms.length) return;
+  const now = studyNowIso();
+  S.studyPrograms = [
+    { id: 'computer-science', name: 'Ciência da Computação', shortName: 'CC', color: '#4D8EFF', icon: 'bx-code-alt', createdAt: now, updatedAt: now },
+    { id: 'systems-analysis', name: 'Análise e Desenvolvimento de Sistemas', shortName: 'ADS', color: '#9B6DFF', icon: 'bx-devices', createdAt: now, updatedAt: now }
+  ];
+  saveStudyPrograms();
+}
+
+function suggestedStudyTerm() {
+  const now = new Date();
+  return `${now.getFullYear()}.${now.getMonth() < 6 ? 1 : 2}`;
+}
+
+function selectedStudyTerm() {
+  let term = S.studyTerms.find(item => item.id === S.studyTermId);
+  if (!term) term = S.studyTerms.find(item => item.active && !item.archived) || S.studyTerms.find(item => !item.archived) || S.studyTerms[0];
+  if (term) S.studyTermId = term.id;
+  return term || null;
+}
+
+function studySubject(id) { return S.subjects.find(subject => subject.id === id); }
+function studyProgram(id) { return S.studyPrograms.find(program => program.id === id); }
+function studyTermSubjects(termId) { return S.subjects.filter(subject => subject.termId === termId); }
+function visibleStudySubjects(termId) {
+  const subjects = studyTermSubjects(termId);
+  return S.studyProgramFilter === 'all' ? subjects : subjects.filter(subject => subject.programId === S.studyProgramFilter);
+}
+function studyNowIso() { return new Date().toISOString(); }
+function studyDateTime(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+}
+function studyMinutesLabel(minutes) {
+  const value = Math.max(0, Math.round(Number(minutes) || 0));
+  const hours = Math.floor(value / 60);
+  const rest = value % 60;
+  if (!hours) return `${rest}min`;
+  return rest ? `${hours}h ${rest}min` : `${hours}h`;
+}
+function studyElapsedLabel(startedAt) {
+  const elapsed = Math.max(0, Math.floor((Date.now() - new Date(startedAt).getTime()) / 1000));
+  const hours = String(Math.floor(elapsed / 3600)).padStart(2, '0');
+  const minutes = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
+  const seconds = String(elapsed % 60).padStart(2, '0');
+  return `${hours}:${minutes}:${seconds}`;
+}
+function activeStudySession() { return S.studySessions.find(session => session.startedAt && !session.endedAt) || null; }
+
+function setStudyView(view) {
+  S.studyView = ['overview', 'subjects', 'assessments', 'sessions'].includes(view) ? view : 'overview';
+  renderStudies();
+}
+
+function setStudyProgramFilter(programId) {
+  if (programId !== 'all' && !S.studyPrograms.some(program => program.id === programId)) return;
+  S.studyProgramFilter = programId;
+  S.studySubjectFilter = 'all';
+  renderStudies();
+}
+
+function selectStudyTerm(id) {
+  if (!S.studyTerms.some(term => term.id === id)) return;
+  S.studyTermId = id;
+  S.studyProgramFilter = 'all';
+  S.studySubjectFilter = 'all';
+  S.studyAssessmentFilter = 'all';
+  renderStudies();
+}
+
+function activateStudyTerm(id) {
+  const now = studyNowIso();
+  S.studyTerms = S.studyTerms.map(term => ({ ...term, active: term.id === id, archived: term.id === id ? false : term.archived, updatedAt: term.id === id ? now : term.updatedAt }));
+  S.studyTermId = id;
+  saveStudyTerms();
+  renderStudies();
+  toast('Período definido como ativo.');
+}
+
+function archiveStudyTerm(id) {
+  const term = S.studyTerms.find(item => item.id === id);
+  if (!term) return;
+  openConfirm(() => {
+    term.archived = true;
+    term.active = false;
+    term.updatedAt = studyNowIso();
+    const next = S.studyTerms.find(item => item.id !== id && !item.archived);
+    if (next && !S.studyTerms.some(item => item.active && !item.archived)) next.active = true;
+    saveStudyTerms();
+    renderStudies();
+    toast('Período arquivado.', 'info');
+  });
+}
+
+function studyEmpty(icon, title, text, action = '') {
+  return `<div class="study-empty"><i class='bx ${icon}'></i><strong>${title}</strong><span>${text}</span>${action}</div>`;
+}
+
+function renderStudies() {
+  const root = document.getElementById('studiesView');
+  if (!root) return;
+  const term = selectedStudyTerm();
+  if (!term) {
+    root.innerHTML = `<div class="study-onboarding"><div class="study-onboarding-icon"><i class='bx bx-book-reader'></i></div><span class="study-eyebrow">Sua jornada acadêmica começa aqui</span><h1>Organize seu semestre em um só lugar</h1><p>Cadastre o período atual para acompanhar matérias, avaliações, notas e todo o tempo dedicado aos estudos.</p><button class="btn-primary" type="button" onclick="newStudyTerm()"><i class='bx bx-plus'></i> Criar primeiro período</button></div>`;
+    return;
+  }
+
+  const tabs = [
+    ['overview', 'bx-grid-alt', 'Visão geral'], ['subjects', 'bx-book', 'Matérias'],
+    ['assessments', 'bx-clipboard', 'Avaliações'], ['sessions', 'bx-time-five', 'Sessões']
+  ];
+  root.innerHTML = `
+    <div class="study-header">
+      <div><span class="study-eyebrow">Central acadêmica</span><h1>${escHtml(term.name)}</h1><p>${term.archived ? 'Período arquivado · consulte seu histórico' : term.active ? 'Seu período acadêmico ativo' : 'Consultando um período anterior'}</p></div>
+      <div class="study-term-controls">
+        <label class="study-term-select"><i class='bx bx-calendar'></i><select aria-label="Selecionar período" onchange="selectStudyTerm(this.value)">${S.studyTerms.map(item => `<option value="${item.id}"${item.id === term.id ? ' selected' : ''}>${escHtml(item.name)}${item.active ? ' · ativo' : item.archived ? ' · arquivado' : ''}</option>`).join('')}</select></label>
+        <button class="btn-ghost study-icon-action" type="button" onclick="newStudyTerm()" title="Novo período"><i class='bx bx-plus'></i></button>
+        <button class="btn-ghost study-icon-action" type="button" onclick="editStudyTerm('${term.id}')" title="Editar período"><i class='bx bx-edit'></i></button>
+        ${!term.active ? `<button class="btn-ghost" type="button" onclick="activateStudyTerm('${term.id}')"><i class='bx bx-check-circle'></i> Tornar ativo</button>` : ''}
+        ${!term.archived ? `<button class="btn-ghost study-icon-action" type="button" onclick="archiveStudyTerm('${term.id}')" title="Arquivar período"><i class='bx bx-archive-in'></i></button>` : ''}
+      </div>
+    </div>
+    <div class="study-program-switcher" aria-label="Filtrar por curso">
+      <button type="button" class="study-program-option${S.studyProgramFilter === 'all' ? ' active' : ''}" onclick="setStudyProgramFilter('all')"><span class="study-program-symbol all-programs"><i class='bx bx-layer'></i></span><span><strong>Todos</strong><small>Visão combinada</small></span></button>
+      ${S.studyPrograms.map(program => `<button type="button" class="study-program-option${S.studyProgramFilter === program.id ? ' active' : ''}" style="--program:${program.color}" onclick="setStudyProgramFilter('${program.id}')"><span class="study-program-symbol"><i class='bx ${program.icon || 'bx-book'}'></i></span><span><strong>${escHtml(program.shortName)}</strong><small>${escHtml(program.name)}</small></span></button>`).join('')}
+    </div>
+    <div class="study-tabs" role="tablist">${tabs.map(([id, icon, label]) => `<button type="button" role="tab" aria-selected="${S.studyView === id}" class="study-tab${S.studyView === id ? ' active' : ''}" onclick="setStudyView('${id}')"><i class='bx ${icon}'></i><span>${label}</span></button>`).join('')}</div>
+    <div id="studyTimerMount">${renderStudyTimer()}</div>
+    <div class="study-view" id="studyViewContent"></div>`;
+
+  if (S.studyView === 'subjects') renderStudySubjects(term);
+  else if (S.studyView === 'assessments') renderStudyAssessments(term);
+  else if (S.studyView === 'sessions') renderStudySessions(term);
+  else renderStudyOverview(term);
+  syncStudyTimerInterval();
+}
+
+function renderStudyTimer() {
+  const session = activeStudySession();
+  if (!session) return '';
+  const subject = studySubject(session.subjectId);
+  const program = studyProgram(subject?.programId);
+  return `<div class="study-running" role="timer"><div class="study-running-pulse"><i class='bx bx-timer'></i></div><div class="study-running-copy"><span>Sessão em andamento${program ? ` · ${escHtml(program.shortName)}` : ''}</span><strong>${escHtml(subject?.name || 'Matéria removida')}${session.topic ? ` · ${escHtml(session.topic)}` : ''}</strong></div><div class="study-running-time" id="studyRunningTime">${studyElapsedLabel(session.startedAt)}</div><button class="btn-primary" type="button" onclick="finishStudyTimer()"><i class='bx bx-stop-circle'></i> Finalizar</button><button class="btn-ghost study-icon-action" type="button" onclick="cancelStudyTimer()" title="Cancelar sessão"><i class='bx bx-x'></i></button></div>`;
+}
+
+function syncStudyTimerInterval() {
+  if (studyTimerInterval) clearInterval(studyTimerInterval);
+  studyTimerInterval = null;
+  if (!activeStudySession()) return;
+  studyTimerInterval = setInterval(() => {
+    const session = activeStudySession();
+    const el = document.getElementById('studyRunningTime');
+    if (!session) { clearInterval(studyTimerInterval); studyTimerInterval = null; return; }
+    if (el) el.textContent = studyElapsedLabel(session.startedAt);
+  }, 1000);
+}
+
+function renderStudyOverview(term) {
+  const target = document.getElementById('studyViewContent');
+  const subjects = visibleStudySubjects(term.id);
+  const subjectIds = new Set(subjects.map(subject => subject.id));
+  const assessments = S.assessments.filter(item => subjectIds.has(item.subjectId));
+  const sessions = S.studySessions.filter(item => subjectIds.has(item.subjectId) && item.endedAt);
+  const today = localDateString(new Date());
+  const weekStart = new Date();
+  const day = weekStart.getDay() || 7;
+  weekStart.setHours(0, 0, 0, 0);
+  weekStart.setDate(weekStart.getDate() - day + 1);
+  const weekly = sessions.filter(item => new Date(item.endedAt || item.date) >= weekStart).reduce((total, item) => total + Number(item.durationMinutes || 0), 0);
+  const upcoming = assessments.filter(item => item.dueDate >= today && item.status !== 'Concluída').sort((a, b) => a.dueDate.localeCompare(b.dueDate));
+  const graded = assessments.filter(item => item.score !== null && item.score !== undefined && item.score !== '').sort((a, b) => (b.updatedAt || '').localeCompare(a.updatedAt || ''));
+  const distribution = subjects.map(subject => ({ subject, minutes: sessions.filter(item => item.subjectId === subject.id).reduce((sum, item) => sum + Number(item.durationMinutes || 0), 0) })).filter(item => item.minutes > 0).sort((a, b) => b.minutes - a.minutes);
+  const totalMinutes = distribution.reduce((sum, item) => sum + item.minutes, 0);
+  const next = upcoming[0];
+  const programSummary = S.studyProgramFilter === 'all' ? S.studyPrograms.map(program => {
+    const programSubjects = studyTermSubjects(term.id).filter(subject => subject.programId === program.id);
+    const ids = new Set(programSubjects.map(subject => subject.id));
+    const minutes = S.studySessions.filter(item => ids.has(item.subjectId) && item.endedAt).reduce((sum, item) => sum + Number(item.durationMinutes || 0), 0);
+    const pending = S.assessments.filter(item => ids.has(item.subjectId) && item.status !== 'Concluída').length;
+    return { program, subjects: programSubjects.length, minutes, pending };
+  }) : [];
+  target.innerHTML = `
+    <div class="study-metrics">
+      <div class="study-metric"><i class='bx bx-book' style="color:var(--blue);background:var(--blue-dim)"></i><div><strong>${subjects.length}</strong><span>Matérias</span></div></div>
+      <div class="study-metric"><i class='bx bx-time-five' style="color:var(--green);background:var(--green-dim)"></i><div><strong>${studyMinutesLabel(weekly)}</strong><span>Esta semana</span></div></div>
+      <div class="study-metric"><i class='bx bx-calendar-event' style="color:var(--amber);background:var(--amber-dim)"></i><div><strong>${upcoming.length}</strong><span>Próximas avaliações</span></div></div>
+      <div class="study-metric"><i class='bx bx-medal' style="color:var(--purple);background:var(--purple-dim)"></i><div><strong>${graded.length}</strong><span>Notas registradas</span></div></div>
+    </div>
+    ${programSummary.length ? `<div class="study-program-summary">${programSummary.map(item => `<button type="button" style="--program:${item.program.color}" onclick="setStudyProgramFilter('${item.program.id}')"><span class="study-program-summary-icon"><i class='bx ${item.program.icon || 'bx-book'}'></i></span><span><strong>${escHtml(item.program.name)}</strong><small>${item.subjects} ${item.subjects === 1 ? 'matéria' : 'matérias'} · ${studyMinutesLabel(item.minutes)} estudados · ${item.pending} pendentes</small></span><i class='bx bx-chevron-right'></i></button>`).join('')}</div>` : ''}
+    ${next ? `<div class="study-next-assessment"><div><span>Próximo compromisso</span><strong>${escHtml(next.title)}</strong><small>${escHtml(studySubject(next.subjectId)?.name || 'Sem matéria')} · ${fmtDate(next.dueDate)}</small></div><button class="btn-ghost" type="button" onclick="editAssessment('${next.id}')">Ver avaliação <i class='bx bx-right-arrow-alt'></i></button></div>` : ''}
+    <div class="study-overview-grid">
+      <div class="panel study-panel"><div class="panel-head"><div><h3 class="panel-title">Próximas avaliações</h3><p class="panel-subtitle">Prazos que merecem sua atenção.</p></div><button class="panel-action" onclick="newAssessment()"><i class='bx bx-plus'></i> Adicionar</button></div><div class="study-list">${upcoming.slice(0, 5).map(studyAssessmentRow).join('') || studyEmpty('bx-calendar-x', 'Nenhuma avaliação próxima', 'Cadastre provas e trabalhos para acompanhar os prazos.')}</div></div>
+      <div class="panel study-panel"><div class="panel-head"><div><h3 class="panel-title">Notas recentes</h3><p class="panel-subtitle">Resultados registrados no período.</p></div></div><div class="study-list">${graded.slice(0, 5).map(studyGradeRow).join('') || studyEmpty('bx-medal', 'Nenhuma nota registrada', 'Adicione a nota em uma avaliação concluída.')}</div></div>
+      <div class="panel study-panel"><div class="panel-head"><div><h3 class="panel-title">Grade acadêmica</h3><p class="panel-subtitle">Horários das matérias deste período.</p></div></div><div class="study-list">${subjects.filter(subject => subject.schedule).map(subject => `<div class="study-schedule-row"><span style="background:${subject.color || STUDY_COLORS[0]}"></span><div><strong>${escHtml(subject.name)}</strong><small>${escHtml(subject.schedule)}${subject.room ? ` · ${escHtml(subject.room)}` : ''}</small></div></div>`).join('') || studyEmpty('bx-calendar', 'Grade ainda vazia', 'Adicione os horários ao cadastro das matérias.')}</div></div>
+      <div class="panel study-panel"><div class="panel-head"><div><h3 class="panel-title">Tempo por matéria</h3><p class="panel-subtitle">Distribuição acumulada no período.</p></div><strong class="study-total-time">${studyMinutesLabel(totalMinutes)}</strong></div><div class="study-distribution">${distribution.map(item => `<div class="study-distribution-row"><div><span>${escHtml(item.subject.name)}</span><strong>${studyMinutesLabel(item.minutes)}</strong></div><div class="study-progress"><span style="width:${Math.max(4, Math.round(item.minutes / totalMinutes * 100))}%;background:${item.subject.color || STUDY_COLORS[0]}"></span></div></div>`).join('') || studyEmpty('bx-bar-chart-alt-2', 'Sem tempo registrado', 'Use o timer ou lance uma sessão manualmente.')}</div></div>
+    </div>`;
+}
+
+function studyAssessmentRow(item) {
+  const subject = studySubject(item.subjectId);
+  const program = studyProgram(subject?.programId);
+  return `<button class="study-list-row" type="button" onclick="editAssessment('${item.id}')"><span class="study-date-box"><strong>${item.dueDate?.slice(8, 10) || '--'}</strong><small>${item.dueDate ? new Date(`${item.dueDate}T12:00:00`).toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '') : ''}</small></span><div><strong>${escHtml(item.title)}</strong><small><span class="study-dot" style="background:${subject?.color || STUDY_COLORS[0]}"></span>${escHtml(subject?.name || 'Sem matéria')} · ${escHtml(program?.shortName || item.type)}</small></div><span class="study-status status-${item.status === 'Concluída' ? 'done' : item.status === 'Entregue' ? 'sent' : 'pending'}">${escHtml(item.status)}</span></button>`;
+}
+
+function studyGradeRow(item) {
+  const subject = studySubject(item.subjectId);
+  const program = studyProgram(subject?.programId);
+  return `<button class="study-list-row study-grade-row" type="button" onclick="editAssessment('${item.id}')"><span class="study-subject-mark" style="background:${subject?.color || STUDY_COLORS[0]}"><i class='bx bx-book'></i></span><div><strong>${escHtml(item.title)}</strong><small>${escHtml(subject?.name || 'Sem matéria')}${program ? ` · ${escHtml(program.shortName)}` : ''}</small></div><span class="study-grade"><strong>${escHtml(item.score)}</strong><small>/ ${escHtml(item.maxScore)}</small></span></button>`;
+}
+
+function renderStudySubjects(term) {
+  const target = document.getElementById('studyViewContent');
+  const subjects = visibleStudySubjects(term.id);
+  target.innerHTML = `<div class="study-view-toolbar"><div><h2>Matérias</h2><p>${subjects.length} ${subjects.length === 1 ? 'matéria cadastrada' : 'matérias cadastradas'} em ${escHtml(term.name)}</p></div><button class="btn-primary" type="button" onclick="newSubject()"><i class='bx bx-plus'></i> Nova matéria</button></div>${subjects.length ? `<div class="study-subject-grid">${subjects.map(subject => {
+    const assessments = S.assessments.filter(item => item.subjectId === subject.id);
+    const minutes = S.studySessions.filter(item => item.subjectId === subject.id && item.endedAt).reduce((sum, item) => sum + Number(item.durationMinutes || 0), 0);
+    const program = studyProgram(subject.programId);
+    return `<article class="study-subject-card" style="--subject:${subject.color || STUDY_COLORS[0]};--program:${program?.color || subject.color || STUDY_COLORS[0]}"><div class="study-subject-card-top"><span class="study-subject-icon"><i class='bx bx-book-bookmark'></i></span><div class="study-card-actions"><button onclick="editSubject('${subject.id}')" title="Editar"><i class='bx bx-edit'></i></button><button onclick="deleteSubject('${subject.id}')" title="Excluir"><i class='bx bx-trash'></i></button></div></div><div class="study-subject-labels"><span class="study-subject-code">${escHtml(subject.code || 'MATÉRIA')}</span>${program ? `<span class="study-program-badge"><i class='bx ${program.icon}'></i>${escHtml(program.shortName)}</span>` : '<span class="study-program-badge unassigned">Sem curso</span>'}</div><h3>${escHtml(subject.name)}</h3><p>${escHtml(subject.professor || 'Professor não informado')}</p><div class="study-subject-details">${subject.schedule ? `<span><i class='bx bx-time'></i>${escHtml(subject.schedule)}</span>` : ''}${subject.room ? `<span><i class='bx bx-map'></i>${escHtml(subject.room)}</span>` : ''}</div><div class="study-subject-foot"><span><strong>${assessments.length}</strong> avaliações</span><span><strong>${studyMinutesLabel(minutes)}</strong> estudados</span></div></article>`;
+  }).join('')}</div>` : studyEmpty('bx-book-open', 'Nenhuma matéria neste período', 'Cadastre sua primeira matéria para começar.', `<button class="btn-primary" onclick="newSubject()"><i class='bx bx-plus'></i> Nova matéria</button>`)}`;
+}
+
+function renderStudyAssessments(term) {
+  const target = document.getElementById('studyViewContent');
+  const subjects = visibleStudySubjects(term.id);
+  const subjectIds = new Set(subjects.map(subject => subject.id));
+  let items = S.assessments.filter(item => subjectIds.has(item.subjectId));
+  if (S.studySubjectFilter !== 'all') items = items.filter(item => item.subjectId === S.studySubjectFilter);
+  if (S.studyAssessmentFilter !== 'all') items = items.filter(item => item.status === S.studyAssessmentFilter);
+  items.sort((a, b) => (a.dueDate || '').localeCompare(b.dueDate || ''));
+  target.innerHTML = `<div class="study-view-toolbar"><div><h2>Avaliações</h2><p>Provas, trabalhos e resultados do período.</p></div><button class="btn-primary" type="button" onclick="newAssessment()"><i class='bx bx-plus'></i> Nova avaliação</button></div><div class="study-filter-row"><select class="form-select" aria-label="Filtrar por matéria" onchange="S.studySubjectFilter=this.value;renderStudies()"><option value="all">Todas as matérias</option>${subjects.map(subject => `<option value="${subject.id}"${S.studySubjectFilter === subject.id ? ' selected' : ''}>${escHtml(subject.name)}</option>`).join('')}</select>${['all', 'Pendente', 'Entregue', 'Concluída'].map(status => `<button class="ftab${S.studyAssessmentFilter === status ? ' active' : ''}" onclick="S.studyAssessmentFilter='${status}';renderStudies()">${status === 'all' ? 'Todos' : status}</button>`).join('')}</div>${items.length ? `<div class="panel study-assessment-table"><div class="study-assessment-head"><span>Avaliação</span><span>Matéria</span><span>Prazo</span><span>Nota</span><span>Status</span><span></span></div>${items.map(item => { const subject = studySubject(item.subjectId); const program = studyProgram(subject?.programId); return `<div class="study-assessment-item"><div><span class="study-type-icon"><i class='bx bx-clipboard'></i></span><div><strong>${escHtml(item.title)}</strong><small>${escHtml(item.type)}${program ? ` · ${escHtml(program.shortName)}` : ''}</small></div></div><span><i class="study-dot" style="background:${subject?.color || STUDY_COLORS[0]}"></i>${escHtml(subject?.name || 'Sem matéria')}</span><span>${fmtDate(item.dueDate)}</span><span>${item.score !== null && item.score !== undefined && item.score !== '' ? `<strong>${escHtml(item.score)}</strong> / ${escHtml(item.maxScore)}` : '—'}</span><span class="study-status status-${item.status === 'Concluída' ? 'done' : item.status === 'Entregue' ? 'sent' : 'pending'}">${escHtml(item.status)}</span><span class="study-row-actions"><button onclick="editAssessment('${item.id}')" title="Editar"><i class='bx bx-edit'></i></button><button onclick="deleteAssessment('${item.id}')" title="Excluir"><i class='bx bx-trash'></i></button></span></div>`; }).join('')}</div>` : studyEmpty('bx-clipboard', subjects.length ? 'Nenhuma avaliação encontrada' : 'Nenhuma matéria neste curso', subjects.length ? 'Ajuste os filtros ou adicione uma nova avaliação.' : 'Cadastre uma matéria ou selecione outra graduação.')}`;
+}
+
+function renderStudySessions(term) {
+  const target = document.getElementById('studyViewContent');
+  const subjects = visibleStudySubjects(term.id);
+  const subjectIds = new Set(subjects.map(subject => subject.id));
+  let sessions = S.studySessions.filter(item => subjectIds.has(item.subjectId) && item.endedAt);
+  if (S.studySubjectFilter !== 'all') sessions = sessions.filter(item => item.subjectId === S.studySubjectFilter);
+  sessions.sort((a, b) => (b.endedAt || b.date || '').localeCompare(a.endedAt || a.date || ''));
+  target.innerHTML = `<div class="study-view-toolbar"><div><h2>Sessões de estudo</h2><p>Registre sua dedicação e entenda para onde seu tempo está indo.</p></div><div class="study-toolbar-actions"><button class="btn-ghost" type="button" onclick="newStudySession()"><i class='bx bx-edit-alt'></i> Lançar manualmente</button>${activeStudySession() ? `<button class="btn-primary study-active-timer-btn" type="button" onclick="document.getElementById('studyTimerMount')?.scrollIntoView({behavior:'smooth',block:'center'})"><i class='bx bx-timer'></i> Timer em andamento</button>` : `<button class="btn-primary" type="button" onclick="startStudyTimer()"><i class='bx bx-play-circle'></i> Iniciar timer</button>`}</div></div><div class="study-filter-row"><select class="form-select" aria-label="Filtrar sessões por matéria" onchange="S.studySubjectFilter=this.value;renderStudies()"><option value="all">Todas as matérias</option>${subjects.map(subject => `<option value="${subject.id}"${S.studySubjectFilter === subject.id ? ' selected' : ''}>${escHtml(subject.name)}</option>`).join('')}</select></div>${sessions.length ? `<div class="study-session-list">${sessions.map(session => { const subject = studySubject(session.subjectId); const program = studyProgram(subject?.programId); return `<article class="study-session-item"><span class="study-session-icon" style="color:${subject?.color || STUDY_COLORS[0]};background:${subject?.color || STUDY_COLORS[0]}22"><i class='bx bx-time-five'></i></span><div><strong>${escHtml(session.topic || 'Sessão de estudo')}</strong><small>${escHtml(subject?.name || 'Matéria removida')}${program ? ` · ${escHtml(program.shortName)}` : ''} · ${fmtDate(session.date || session.endedAt?.slice(0, 10))}${session.source === 'timer' ? ' · timer' : ' · manual'}</small></div><strong class="study-session-duration">${studyMinutesLabel(session.durationMinutes)}</strong><span class="study-row-actions"><button onclick="editStudySession('${session.id}')" title="Editar"><i class='bx bx-edit'></i></button><button onclick="deleteStudySession('${session.id}')" title="Excluir"><i class='bx bx-trash'></i></button></span></article>`; }).join('')}</div>` : studyEmpty('bx-time-five', subjects.length ? 'Nenhuma sessão registrada' : 'Nenhuma matéria neste curso', subjects.length ? 'Inicie o timer ou faça um lançamento manual.' : 'Cadastre uma matéria ou selecione outra graduação.')}`;
+}
+
+function studyTermForm(term = {}) {
+  return `<div class="form-group"><label class="form-label">Nome do período *</label><input class="form-input" id="f-study-term-name" maxlength="40" placeholder="Ex.: ${suggestedStudyTerm()}" value="${escHtml(term.name || suggestedStudyTerm())}"></div><label class="settings-toggle"><span><i class='bx bx-check-circle'></i><span><strong>Definir como período ativo</strong><small>O Hub abrirá este período por padrão.</small></span></span><input type="checkbox" id="f-study-term-active"${term.active || !S.studyTerms.some(item => item.active && !item.archived) ? ' checked' : ''}><span class="toggle-track"></span></label>`;
+}
+
+function newStudyTerm() {
+  openModal('Novo período acadêmico', studyTermForm(), () => {
+    const name = document.getElementById('f-study-term-name').value.trim();
+    if (!name) return toast('Informe o nome do período.', 'error'), false;
+    const active = document.getElementById('f-study-term-active').checked;
+    if (active) S.studyTerms.forEach(item => { item.active = false; });
+    const now = studyNowIso();
+    const term = { id: uid(), name, active, archived: false, createdAt: now, updatedAt: now };
+    S.studyTerms.push(term); S.studyTermId = term.id; saveStudyTerms(); renderStudies(); toast('Período criado!');
+  });
+}
+
+function editStudyTerm(id) {
+  const term = S.studyTerms.find(item => item.id === id); if (!term) return;
+  openModal('Editar período', studyTermForm(term), () => {
+    const name = document.getElementById('f-study-term-name').value.trim();
+    if (!name) return toast('Informe o nome do período.', 'error'), false;
+    const active = document.getElementById('f-study-term-active').checked;
+    if (active) S.studyTerms.forEach(item => { item.active = item.id === id; });
+    Object.assign(term, { name, active, archived: active ? false : term.archived, updatedAt: studyNowIso() });
+    saveStudyTerms(); renderStudies(); toast('Período atualizado!');
+  });
+}
+
+function studySubjectOptions(termId, selected = '') {
+  const subjects = visibleStudySubjects(termId);
+  const selectedSubject = selected ? studySubject(selected) : null;
+  if (selectedSubject && !subjects.some(subject => subject.id === selectedSubject.id)) subjects.push(selectedSubject);
+  return subjects.map(subject => { const program = studyProgram(subject.programId); return `<option value="${subject.id}"${selected === subject.id ? ' selected' : ''}>${escHtml(subject.name)}${program ? ` · ${escHtml(program.shortName)}` : ''}</option>`; }).join('');
+}
+
+function subjectForm(subject = {}) {
+  const term = selectedStudyTerm();
+  const selectedProgram = subject.programId || (S.studyProgramFilter !== 'all' ? S.studyProgramFilter : S.studyPrograms[0]?.id || '');
+  return `<div class="form-group"><label class="form-label">Curso *</label><select class="form-select" id="f-subject-program"><option value="">Selecione o curso</option>${S.studyPrograms.map(program => `<option value="${program.id}"${selectedProgram === program.id ? ' selected' : ''}>${escHtml(program.name)}</option>`).join('')}</select></div><div class="form-row"><div class="form-group"><label class="form-label">Nome da matéria *</label><input class="form-input" id="f-subject-name" maxlength="80" placeholder="Ex.: Introdução à Administração" value="${escHtml(subject.name || '')}"></div><div class="form-group"><label class="form-label">Código</label><input class="form-input" id="f-subject-code" maxlength="20" placeholder="Ex.: ADM101" value="${escHtml(subject.code || '')}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Professor</label><input class="form-input" id="f-subject-professor" maxlength="80" value="${escHtml(subject.professor || '')}"></div><div class="form-group"><label class="form-label">Sala</label><input class="form-input" id="f-subject-room" maxlength="40" placeholder="Ex.: Bloco B · Sala 204" value="${escHtml(subject.room || '')}"></div></div><div class="form-group"><label class="form-label">Horários</label><input class="form-input" id="f-subject-schedule" maxlength="100" placeholder="Ex.: Seg e Qua · 19:00–20:40" value="${escHtml(subject.schedule || '')}"></div><div class="form-group"><label class="form-label">Cor da matéria</label><div class="study-color-picker">${STUDY_COLORS.map((color, index) => `<label><input type="radio" name="subject-color" value="${color}"${(subject.color || STUDY_COLORS[studyTermSubjects(term.id).length % STUDY_COLORS.length]) === color ? ' checked' : ''}><span style="background:${color}"></span></label>`).join('')}</div></div>`;
+}
+
+function newSubject(afterSave = null) {
+  const term = selectedStudyTerm(); if (!term) return newStudyTerm();
+  openModal('Nova matéria', subjectForm(), () => {
+    const name = document.getElementById('f-subject-name').value.trim();
+    const programId = document.getElementById('f-subject-program').value;
+    if (!name || !programId) return toast('Informe o curso e o nome da matéria.', 'error'), false;
+    const now = studyNowIso();
+    S.subjects.push({ id: uid(), termId: term.id, programId, name, code: document.getElementById('f-subject-code').value.trim(), professor: document.getElementById('f-subject-professor').value.trim(), room: document.getElementById('f-subject-room').value.trim(), schedule: document.getElementById('f-subject-schedule').value.trim(), color: document.querySelector('input[name="subject-color"]:checked')?.value || STUDY_COLORS[0], createdAt: now, updatedAt: now });
+    saveSubjects();
+    if (!afterSave) S.studyView = 'subjects';
+    renderStudies(); toast('Matéria criada!');
+    if (typeof afterSave === 'function') setTimeout(afterSave, 0);
+  });
+}
+
+function editSubject(id) {
+  const subject = studySubject(id); if (!subject) return;
+  openModal('Editar matéria', subjectForm(subject), () => {
+    const name = document.getElementById('f-subject-name').value.trim();
+    const programId = document.getElementById('f-subject-program').value;
+    if (!name || !programId) return toast('Informe o curso e o nome da matéria.', 'error'), false;
+    Object.assign(subject, { programId, name, code: document.getElementById('f-subject-code').value.trim(), professor: document.getElementById('f-subject-professor').value.trim(), room: document.getElementById('f-subject-room').value.trim(), schedule: document.getElementById('f-subject-schedule').value.trim(), color: document.querySelector('input[name="subject-color"]:checked')?.value || STUDY_COLORS[0], updatedAt: studyNowIso() });
+    saveSubjects(); renderStudies(); toast('Matéria atualizada!');
+  });
+}
+
+function deleteSubject(id) {
+  const subject = studySubject(id); if (!subject) return;
+  const hasRunning = activeStudySession()?.subjectId === id;
+  if (hasRunning) return toast('Finalize ou cancele o timer desta matéria antes de excluí-la.', 'error');
+  openConfirm(() => {
+    S.subjects = S.subjects.filter(item => item.id !== id);
+    S.assessments = S.assessments.filter(item => item.subjectId !== id);
+    S.studySessions = S.studySessions.filter(item => item.subjectId !== id);
+    saveSubjects(); saveAssessments(); saveStudySessions(); renderStudies(); toast('Matéria e registros relacionados excluídos.', 'info');
+  });
+}
+
+function assessmentForm(item = {}) {
+  const term = selectedStudyTerm();
+  return `<div class="form-row"><div class="form-group"><label class="form-label">Título *</label><input class="form-input" id="f-assessment-title" maxlength="100" placeholder="Ex.: Prova do primeiro bimestre" value="${escHtml(item.title || '')}"></div><div class="form-group"><label class="form-label">Matéria *</label><select class="form-select" id="f-assessment-subject"><option value="">Selecione</option>${studySubjectOptions(term.id, item.subjectId)}</select></div></div><div class="form-row"><div class="form-group"><label class="form-label">Tipo</label><select class="form-select" id="f-assessment-type">${['Prova', 'Trabalho', 'Seminário', 'Atividade', 'Outro'].map(type => `<option${(item.type || 'Prova') === type ? ' selected' : ''}>${type}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Prazo *</label><input class="form-input" id="f-assessment-date" type="date" value="${item.dueDate || localDateString(new Date())}"></div></div><div class="form-row"><div class="form-group"><label class="form-label">Status</label><select class="form-select" id="f-assessment-status">${['Pendente', 'Entregue', 'Concluída'].map(status => `<option${(item.status || 'Pendente') === status ? ' selected' : ''}>${status}</option>`).join('')}</select></div><div class="form-group"><label class="form-label">Nota obtida</label><input class="form-input" id="f-assessment-score" type="number" min="0" step="0.01" placeholder="Ex.: 8.5" value="${item.score ?? ''}"></div><div class="form-group"><label class="form-label">Nota máxima</label><input class="form-input" id="f-assessment-max" type="number" min="0.01" step="0.01" placeholder="Ex.: 10" value="${item.maxScore ?? ''}"></div></div>`;
+}
+
+function readAssessmentForm(item, term) {
+  const title = document.getElementById('f-assessment-title').value.trim();
+  const subjectId = document.getElementById('f-assessment-subject').value;
+  const dueDate = document.getElementById('f-assessment-date').value;
+  const scoreRaw = document.getElementById('f-assessment-score').value;
+  const maxRaw = document.getElementById('f-assessment-max').value;
+  if (!title || !subjectId || !dueDate) return toast('Preencha título, matéria e prazo.', 'error'), false;
+  if ((scoreRaw && !maxRaw) || (!scoreRaw && maxRaw)) return toast('Informe a nota obtida e a nota máxima juntas.', 'error'), false;
+  const score = scoreRaw === '' ? null : Number(scoreRaw), maxScore = maxRaw === '' ? null : Number(maxRaw);
+  if (score !== null && (!Number.isFinite(score) || !Number.isFinite(maxScore) || score < 0 || maxScore <= 0 || score > maxScore)) return toast('Confira os valores da nota.', 'error'), false;
+  return { title, subjectId, termId: term.id, type: document.getElementById('f-assessment-type').value, dueDate, status: document.getElementById('f-assessment-status').value, score, maxScore, updatedAt: studyNowIso() };
+}
+
+function studyTermForAction(retry) {
+  const term = selectedStudyTerm();
+  if (!term) {
+    toast('Crie um período acadêmico primeiro.', 'info');
+    newStudyTerm();
+    return null;
+  }
+  if (!visibleStudySubjects(term.id).length) {
+    const program = S.studyProgramFilter === 'all' ? null : studyProgram(S.studyProgramFilter);
+    toast(program ? `Cadastre uma matéria de ${program.shortName} para continuar.` : 'Cadastre uma matéria para continuar.', 'info');
+    newSubject(retry);
+    return null;
+  }
+  return term;
+}
+
+function newAssessment() {
+  const term = studyTermForAction(() => newAssessment()); if (!term) return;
+  openModal('Nova avaliação', assessmentForm(), () => { const values = readAssessmentForm(null, term); if (!values) return false; S.assessments.push({ id: uid(), ...values, createdAt: studyNowIso() }); saveAssessments(); S.studyView = 'assessments'; renderStudies(); toast('Avaliação criada!'); });
+}
+function editAssessment(id) {
+  const item = S.assessments.find(entry => entry.id === id); if (!item) return;
+  const term = S.studyTerms.find(entry => entry.id === item.termId) || selectedStudyTerm();
+  openModal('Editar avaliação', assessmentForm(item), () => { const values = readAssessmentForm(item, term); if (!values) return false; Object.assign(item, values); saveAssessments(); renderStudies(); toast('Avaliação atualizada!'); });
+}
+function deleteAssessment(id) { openConfirm(() => { S.assessments = S.assessments.filter(item => item.id !== id); saveAssessments(); renderStudies(); toast('Avaliação excluída.', 'info'); }); }
+
+function sessionForm(item = {}) {
+  const term = selectedStudyTerm();
+  return `<div class="form-row"><div class="form-group"><label class="form-label">Matéria *</label><select class="form-select" id="f-session-subject"><option value="">Selecione</option>${studySubjectOptions(term.id, item.subjectId)}</select></div><div class="form-group"><label class="form-label">Data *</label><input class="form-input" id="f-session-date" type="date" value="${item.date || localDateString(new Date())}"></div></div><div class="form-group"><label class="form-label">Assunto estudado</label><input class="form-input" id="f-session-topic" maxlength="120" placeholder="Ex.: Revisão dos capítulos 1 e 2" value="${escHtml(item.topic || '')}"></div><div class="form-group"><label class="form-label">Duração em minutos *</label><input class="form-input" id="f-session-duration" type="number" min="1" max="1440" step="1" placeholder="Ex.: 50" value="${item.durationMinutes || ''}"></div>`;
+}
+function readSessionForm() {
+  const subjectId = document.getElementById('f-session-subject').value, date = document.getElementById('f-session-date').value, durationMinutes = Number(document.getElementById('f-session-duration').value);
+  if (!subjectId || !date || !Number.isFinite(durationMinutes) || durationMinutes < 1 || durationMinutes > 1440) return toast('Informe matéria, data e uma duração válida.', 'error'), false;
+  return { subjectId, date, topic: document.getElementById('f-session-topic').value.trim(), durationMinutes: Math.round(durationMinutes), updatedAt: studyNowIso() };
+}
+function newStudySession() {
+  const term = studyTermForAction(() => newStudySession()); if (!term) return;
+  openModal('Registrar sessão', sessionForm(), () => { const values = readSessionForm(); if (!values) return false; const end = new Date(`${values.date}T12:00:00`); S.studySessions.push({ id: uid(), ...values, source: 'manual', startedAt: null, endedAt: end.toISOString(), createdAt: studyNowIso() }); saveStudySessions(); renderStudies(); toast('Sessão registrada!'); });
+}
+function editStudySession(id) {
+  const item = S.studySessions.find(entry => entry.id === id); if (!item || !item.endedAt) return;
+  openModal('Editar sessão', sessionForm(item), () => { const values = readSessionForm(); if (!values) return false; Object.assign(item, values); saveStudySessions(); renderStudies(); toast('Sessão atualizada!'); });
+}
+function deleteStudySession(id) { openConfirm(() => { S.studySessions = S.studySessions.filter(item => item.id !== id); saveStudySessions(); renderStudies(); toast('Sessão excluída.', 'info'); }); }
+
+function startStudyTimer() {
+  if (activeStudySession()) { toast('Já existe uma sessão em andamento.', 'info'); if (S.section !== 'studies') navigateTo('studies'); return; }
+  const term = studyTermForAction(() => startStudyTimer()); if (!term) return;
+  openModal('Iniciar sessão de estudo', `<div class="study-timer-modal"><i class='bx bx-timer'></i><p>Escolha a matéria e, se quiser, indique o assunto desta sessão.</p></div><div class="form-group"><label class="form-label">Matéria *</label><select class="form-select" id="f-timer-subject"><option value="">Selecione</option>${studySubjectOptions(term.id)}</select></div><div class="form-group"><label class="form-label">Assunto</label><input class="form-input" id="f-timer-topic" maxlength="120" placeholder="O que você vai estudar?"></div>`, () => {
+    const subjectId = document.getElementById('f-timer-subject').value; if (!subjectId) return toast('Selecione uma matéria.', 'error'), false;
+    const now = studyNowIso(); S.studySessions.push({ id: uid(), subjectId, topic: document.getElementById('f-timer-topic').value.trim(), date: localDateString(new Date()), durationMinutes: 0, source: 'timer', startedAt: now, endedAt: null, createdAt: now, updatedAt: now }); saveStudySessions(); S.studyView = 'sessions'; renderStudies(); toast('Timer iniciado!');
+  });
+  document.getElementById('modalSave').innerHTML = `<i class='bx bx-play'></i> Iniciar`;
+}
+
+function finishStudyTimer() {
+  const session = activeStudySession(); if (!session) return;
+  const started = new Date(session.startedAt).getTime();
+  if (!Number.isFinite(started) || started > Date.now()) return toast('O horário inicial do timer é inválido.', 'error');
+  session.endedAt = studyNowIso(); session.durationMinutes = Math.max(1, Math.round((Date.now() - started) / 60000)); session.updatedAt = session.endedAt;
+  saveStudySessions(); renderStudies(); toast(`Sessão de ${studyMinutesLabel(session.durationMinutes)} concluída!`);
+}
+function cancelStudyTimer() {
+  const session = activeStudySession(); if (!session) return;
+  openConfirm(() => { S.studySessions = S.studySessions.filter(item => item.id !== session.id); saveStudySessions(); renderStudies(); toast('Sessão em andamento cancelada.', 'info'); });
+}
+
 /* ===== PRIMARY BUTTON ACTIONS ===== */
 function primaryAction() {
   const actions = {
@@ -2939,6 +3374,7 @@ function primaryAction() {
     projects: () => newProject(),
     tasks: () => newTask(),
     habits: () => newHabit(),
+    studies: () => newSubject(),
     ideas: () => newIdea(),
     goals: () => newGoal(),
     crm: () => newContact(),
@@ -4058,6 +4494,7 @@ async function startApp() {
   loadInsightState();
   await loadProfiles();
   const existingData = await loadAll();
+  ensureStudyPrograms();
   seedIfEmpty(existingData);
   seedV2(existingData);
   seedNotes(existingData);
@@ -4094,9 +4531,11 @@ const COMMAND_CENTER_ACTIONS = [
   { id: 'new-note', title: 'Criar nota rápida', sub: 'Capturar diretamente como nota', icon: 'bx-note', keywords: 'nota criar escrever' },
   { id: 'new-idea', title: 'Registrar uma ideia', sub: 'Capturar diretamente como ideia', icon: 'bx-bulb', keywords: 'ideia criar registrar' },
   { id: 'new-transaction', title: 'Registrar lançamento financeiro', sub: 'Adicionar uma receita ou despesa', icon: 'bx-dollar-circle', keywords: 'financeiro gasto despesa receita transacao' },
+  { id: 'new-subject', title: 'Criar nova matéria', sub: 'Adicionar uma matéria ao período acadêmico', icon: 'bx-book-open', keywords: 'estudos materia faculdade disciplina criar' },
   { id: 'go-settings', title: 'Abrir Configurações', sub: 'Gerenciar perfil, aparência, alertas, Jarvis e dados', icon: 'bx-cog', keywords: 'configuracoes preferencias perfil aparencia notificacoes backup jarvis' },
   { id: 'go-tasks', title: 'Ir para Tarefas', sub: 'Abrir sua lista de tarefas', icon: 'bx-list-check', keywords: 'navegar tarefas lista' },
-  { id: 'go-agenda', title: 'Ir para Agenda', sub: 'Abrir calendário e recorrências', icon: 'bx-calendar', keywords: 'navegar agenda calendario' }
+  { id: 'go-agenda', title: 'Ir para Agenda', sub: 'Abrir calendário e recorrências', icon: 'bx-calendar', keywords: 'navegar agenda calendario' },
+  { id: 'go-studies', title: 'Ir para Estudos', sub: 'Abrir a Central Acadêmica', icon: 'bx-book-reader', keywords: 'navegar estudos faculdade materias avaliacoes sessoes' }
 ];
 
 function openCommandCenter() {
@@ -4119,9 +4558,11 @@ function runCommand(command) {
     'new-note': () => openInboxCapture('note'),
     'new-idea': () => openInboxCapture('idea'),
     'new-transaction': () => newTransaction(),
+    'new-subject': () => { navigateTo('studies'); newSubject(); },
     'go-settings': () => openSettings('profile'),
     'go-tasks': () => navigateTo('tasks'),
-    'go-agenda': () => navigateTo('agenda')
+    'go-agenda': () => navigateTo('agenda'),
+    'go-studies': () => navigateTo('studies')
   };
   actions[command]?.();
 }
@@ -4170,6 +4611,16 @@ function globalSearchHandler() {
 
     const contacts = S.contacts.filter(c => c.name.toLowerCase().includes(q) || (c.company||'').toLowerCase().includes(q)).slice(0, 3);
     if (contacts.length) groups.push({ label: 'CRM', icon: 'bx-user-circle', bg: '--blue-dim', color: '--blue', section: 'crm', items: contacts.map(c => ({ title: c.name, sub: c.company || 'Contato' })) });
+
+    const subjects = S.subjects.filter(subject => {
+      const program = studyProgram(subject.programId);
+      return `${subject.name} ${subject.code || ''} ${subject.professor || ''} ${program?.name || ''} ${program?.shortName || ''}`.toLowerCase().includes(q);
+    }).slice(0, 4);
+    const assessments = S.assessments.filter(item => `${item.title} ${item.type || ''}`.toLowerCase().includes(q)).slice(0, 4);
+    if (subjects.length || assessments.length) groups.push({ label: 'Estudos', icon: 'bx-book-open', bg: '--purple-dim', color: '--purple', section: 'studies', items: [
+      ...subjects.map(subject => ({ title: subject.name, sub: `${studyProgram(subject.programId)?.shortName || 'Sem curso'} · ${subject.code || subject.professor || 'Matéria'}` })),
+      ...assessments.map(item => ({ title: item.title, sub: `${studySubject(item.subjectId)?.name || 'Avaliação'} · ${fmtDate(item.dueDate)}` }))
+    ].slice(0, 5) });
   }
 
   if (!groups.length) {
@@ -5850,7 +6301,7 @@ async function jarvisTryLocal(text, { fallback = false } = {}) {
     return { handled: true, response: `Marquei **${found.matches[0].title}** como concluída.` };
   }
 
-  const sectionMap = { dashboard: 'dashboard', inicio: 'dashboard', projetos: 'projects', tarefas: 'tasks', habitos: 'habits', agenda: 'agenda', ideias: 'ideas', metas: 'goals', crm: 'crm', financeiro: 'financial', financas: 'financial', notas: 'notes', jarvis: 'jarvis', configuracoes: 'settings', automacoes: 'settings' };
+  const sectionMap = { dashboard: 'dashboard', inicio: 'dashboard', projetos: 'projects', tarefas: 'tasks', habitos: 'habits', agenda: 'agenda', estudos: 'studies', materias: 'studies', faculdade: 'studies', ideias: 'ideas', metas: 'goals', crm: 'crm', financeiro: 'financial', financas: 'financial', notas: 'notes', jarvis: 'jarvis', configuracoes: 'settings', automacoes: 'settings' };
   if (starts(/^(abra|abrir|va para|ir para|mostre a tela|navegue para)\b/)) {
     const target = Object.entries(sectionMap).find(([label]) => normalized.includes(label));
     if (target) { if (target[0] === 'automacoes') openSettings('automations'); else navigateTo(target[1]); return { handled: true, response: `Abri **${target[0] === 'automacoes' ? 'Automações' : sectionMeta[target[1]].label}**.` }; }
