@@ -5716,7 +5716,7 @@ const JARVIS_TOOLS = [
     type: 'function',
     function: {
       name: 'show_choices',
-      description: 'Mostra uma caixa de escolha clicavel para o usuario quando houver caminhos possiveis, confirmacao ou planejamento em etapas.',
+      description: 'Mostra um seletor somente quando o usuario pediu alternativas e existem 2 a 4 decisoes materialmente diferentes. Nunca use para adiar uma resposta, iniciar brainstorming, perguntar como comecar ou oferecer etapas vagas. Depois da escolha, entregue um resultado antes de qualquer nova selecao.',
       parameters: {
         type: 'object',
         properties: {
@@ -5730,7 +5730,8 @@ const JARVIS_TOOLS = [
               type: 'object',
               properties: {
                 label:  { type: 'string' },
-                prompt: { type: 'string', description: 'Texto que sera enviado ou colocado na caixa quando o usuario clicar' }
+                prompt: { type: 'string', description: 'Decisao concreta enviada quando o usuario clicar' },
+                recommended: { type: 'boolean', description: 'Marque no maximo uma opcao quando houver uma recomendacao clara.' }
               },
               required: ['label','prompt']
             }
@@ -5851,7 +5852,7 @@ function jarvisOpenCodeAssets(args = {}) {
   return { success: true, target: 'assets.html', ...request };
 }
 
-async function jarvisRunTool(name, args) {
+async function jarvisRunTool(name, args, executionContext = {}) {
   const today = localDateString(new Date());
 
   switch (name) {
@@ -6164,8 +6165,15 @@ async function jarvisRunTool(name, args) {
       return jarvisOpenCodeAssets(args);
 
     case 'show_choices':
+      {
+      const decision = window.JarvisCognitive?.evaluateChoices(args) || { allowed: false, reason: 'política cognitiva indisponível' };
+      if (!decision.allowed) return {
+        success: false, rendered: false, reason: decision.reason,
+        instruction: 'Entregue agora uma resposta concreta usando suposições razoáveis. Não faça outra pergunta nem chame show_choices neste turno.'
+      };
       jarvisAppendChoices(args.title, args.description || '', args.options || []);
-      return { success: true, rendered: true };
+      return { success: true, rendered: true, instruction: 'Aguarde a decisão do usuário. No turno seguinte, entregue um resultado concreto antes de oferecer novas opções.' };
+      }
 
     case 'list_notes': {
       const folders = S.notes.filter(n => n.type === 'folder').map(f => ({
@@ -6259,7 +6267,8 @@ Papel principal:
 Quando detectar uma ideia nova de negocio, oportunidade, SaaS, produto, projeto, campanha ou validacao:
 - Atue como consultor de negocios e produto.
 - Estruture a resposta com: ideia resumida, problema/dor, publico-alvo, proposta de valor, alternativas/concorrentes, MVP, monetizacao, canais, riscos, perguntas criticas e plano de validacao.
-- Se a ideia estiver vaga, faca 2 a 4 perguntas boas ou use show_choices para caminhos possiveis.
+- Se a ideia estiver vaga, crie primeiro uma hipotese util com defaults reversiveis. Nao devolva ao usuario o trabalho de pensar.
+- Faca no maximo uma pergunta, somente se a resposta mudar materialmente a entrega ou reduzir um risco real.
 - Se houver informacao suficiente, entregue um plano pratico de proximos passos e sugira tarefas/projeto/nota que podem ser salvos no Hub.
 
 Quando o usuario pedir opiniao ou tiver duvida geral:
@@ -6576,7 +6585,7 @@ function jarvisCleanMessages(messages) {
 
 function jarvisBuildCognitivePrompt(experience = {}) {
   const cognitive = experience.specialistContext || {};
-  return `\nContexto cognitivo preparado localmente:\n- Intenção: ${cognitive.intent || experience.intent || 'general'}\n- Modo: ${cognitive.mode || experience.mode || 'general'}\n- Tópico: ${cognitive.topic || 'não definido'}\n- Projeto: ${cognitive.project || 'não definido'}\n- Motivo da delegação: ${cognitive.groqReason || experience.groqReason || 'especialização necessária'}\nUse esse contexto sem repetir a análise do pipeline local.`;
+  return `\nContexto cognitivo preparado localmente:\n- Intenção: ${cognitive.intent || experience.intent || 'general'}\n- Modo: ${cognitive.mode || experience.mode || 'general'}\n- Tópico: ${cognitive.topic || 'não definido'}\n- Projeto: ${cognitive.project || 'não definido'}\n- Motivo da delegação: ${cognitive.groqReason || experience.groqReason || 'especialização necessária'}\n- Estratégia do turno: ${cognitive.strategy || experience.strategy || 'answer'}\n- Entrega obrigatória agora: ${cognitive.mustDeliver ? 'sim' : 'não'}\n- Máximo de perguntas: ${Number.isFinite(cognitive.maxQuestions) ? cognitive.maxQuestions : 1}\n- Seletor de opções permitido: ${cognitive.allowChoices ? 'sim' : 'não'}\n- Motivo da política de escolhas: ${cognitive.choiceReason || 'não informado'}\nUse esse contexto sem repetir a análise do pipeline local. Se a entrega for obrigatória, produza uma primeira versão completa com suposições razoáveis e não faça perguntas. Se o seletor não estiver permitido, nunca chame show_choices.`;
 }
 
 async function jarvisCallGroq(messages, experience = {}, signal = jarvisAbortController?.signal) {
@@ -6595,7 +6604,7 @@ async function jarvisCallGroq(messages, experience = {}, signal = jarvisAbortCon
         content: `${systemPrompt}
 
 Secao atual do usuario no Hub: ${sectionMeta[S.section]?.label || S.section}.
-Use show_choices quando houver varios caminhos bons, quando faltar uma decisao importante, ou quando o usuario pedir um plano. As opcoes devem ser curtas, acionaveis e em portugues brasileiro.`
+Responda ou execute diretamente como padrao. Nao use show_choices para planejamento, brainstorming, proximos passos ou para perguntar como o usuario quer comecar. Use somente quando o contexto cognitivo abaixo disser explicitamente que escolhas estao permitidas. As opcoes devem ser decisoes concretas, nunca frases como "vamos explorar", "vamos comecar" ou "continuar".`
         + `
 Para pedidos sobre componentes, snippets, botoes, inputs, cards, loaders, animacoes ou landing pages, use search_code_assets. Quando fizer sentido, ofereca abrir a biblioteca filtrada com open_code_assets.${jarvisBuildCognitivePrompt(experience)}`
       }, ...cleanMessages],
@@ -6721,7 +6730,7 @@ async function jarvisSend(source = 'panel') {
       jarvisMessages.push(msg);
       for (const tc of msg.tool_calls) {
         jarvisSetProgress(`Executando ${tc.function.name.replace(/_/g, ' ')}`);
-        const result = await jarvisRunTool(tc.function.name, JSON.parse(tc.function.arguments || '{}'));
+        const result = await jarvisRunTool(tc.function.name, JSON.parse(tc.function.arguments || '{}'), { experience: cognitive });
         jarvisMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
       }
       try {
@@ -6732,6 +6741,19 @@ async function jarvisSend(source = 'panel') {
         if (error?.name === 'AbortError') throw error;
         choice = await jarvisCallGroqNoTools(jarvisFallbackMsgs(), cognitive, jarvisAbortController.signal);
       }
+    }
+
+    const validation = window.JarvisCognitive?.validateResponse(choice.message?.content || '', cognitive.conversation);
+    if (validation && !validation.valid) {
+      jarvisSetProgress('Ajustando resposta ao contexto');
+      const repairInstruction = window.JarvisCognitive.responseRepairInstruction(validation, cognitive.conversation);
+      const repaired = await jarvisCallGroqNoTools([
+        { role: 'system', content: jarvisBuildSystemPrompt() },
+        { role: 'user', content: text },
+        { role: 'assistant', content: choice.message?.content || '' },
+        { role: 'user', content: repairInstruction }
+      ], cognitive, jarvisAbortController.signal);
+      choice = repaired;
     }
 
     const reply = choice.message;
@@ -6803,7 +6825,12 @@ function jarvisAppendMsg(role, content, brain = '', experience = null) {
 }
 
 function jarvisAppendChoices(title, description, options) {
-  const validOptions = (options || []).filter(opt => opt?.label && opt?.prompt).slice(0, 4);
+  let hasRecommendation = false;
+  const validOptions = (options || []).filter(opt => opt?.label && opt?.prompt).slice(0, 4).map(option => {
+    const recommended = Boolean(option.recommended) && !hasRecommendation;
+    if (recommended) hasRecommendation = true;
+    return { ...option, recommended };
+  });
   if (!validOptions.length) return;
 
   ['jarvisMsgList', 'jarvisPageMsgList'].forEach(listId => {
@@ -6819,8 +6846,8 @@ function jarvisAppendChoices(title, description, options) {
         ${description ? `<div class="jarvis-choice-desc">${jarvisEsc(description)}</div>` : ''}
         <div class="jarvis-choice-list">
           ${validOptions.map(opt => `
-            <button class="jarvis-choice-btn" type="button" data-prompt="${jarvisAttr(opt.prompt)}">
-              ${jarvisEsc(opt.label)}
+            <button class="jarvis-choice-btn${opt.recommended ? ' recommended' : ''}" type="button" data-prompt="${jarvisAttr(opt.prompt)}" data-label="${jarvisAttr(opt.label)}">
+              <span>${jarvisEsc(opt.label)}</span>${opt.recommended ? '<small>Recomendado</small>' : ''}
             </button>
           `).join('')}
         </div>
@@ -6896,6 +6923,7 @@ function jarvisRunSmartAction(action) {
   if (action.type === 'canvas') return jarvisOpenCanvas(payload.prompt || '');
   if (action.type === 'navigate' && payload.section) return navigateTo(payload.section);
   if (action.type === 'prompt') {
+    window.JarvisCognitive?.registerChoice(payload.prompt || 'smart-action');
     const usePage = S.section === 'jarvis' && document.getElementById('jarvisPageInput');
     const input = document.getElementById(usePage ? 'jarvisPageInput' : 'jarvisInput');
     if (!usePage && !jarvisOpen) jarvisToggle();
@@ -7017,10 +7045,16 @@ function initJarvis() {
     const input = document.getElementById(usePage ? 'jarvisPageInput' : 'jarvisInput');
     if (!usePage && !jarvisOpen) jarvisToggle();
     if (!input) return;
+    document.querySelectorAll('.jarvis-choice-btn').forEach(button => {
+      button.disabled = true;
+      button.classList.toggle('selected', button.dataset.prompt === choiceBtn.dataset.prompt);
+    });
+    window.JarvisCognitive?.registerChoice(choiceBtn.dataset.label || choiceBtn.dataset.prompt || 'choice');
     input.value = choiceBtn.dataset.prompt || '';
     input.focus();
     input.style.height = 'auto';
     input.style.height = Math.min(input.scrollHeight, usePage ? 150 : 110) + 'px';
+    setTimeout(() => jarvisSend(usePage ? 'page' : 'panel'), 0);
   });
   document.addEventListener('click', e => {
     if (!jarvisOpen) return;

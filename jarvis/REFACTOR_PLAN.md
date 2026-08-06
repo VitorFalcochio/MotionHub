@@ -126,5 +126,7 @@ As sete etapas foram aplicadas mantendo os contratos da seção 2.
 - Contexto cognitivo enviado ao Groq somente após decisão local.
 - Histórico concluído uma única vez, depois da resposta efetiva.
 - UI compatível com página, painel e Canvas incremental.
+- Política answer-first, bloqueio de seletores consecutivos e validação de respostas externas.
+- Skill de negócios que transforma ideias vagas em uma hipótese inicial sem devolver o trabalho ao usuário.
 
 O executor legado permanece exclusivamente na fronteira `runtime.hub.execute`, conforme a dívida isolada da seção 4.

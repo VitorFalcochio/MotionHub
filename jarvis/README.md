@@ -21,6 +21,8 @@ Toda entrada percorre, nesta ordem:
 10. `GroqPolicy`: autoriza o especialista somente depois de todos os estágios locais.
 11. `HistoryManager`: registra mensagem, intenção, fonte e tempo de resposta.
 
+`ConversationPolicy` mantém a conversa em modo answer-first. Ela limita perguntas, valida quando um seletor é legítimo e persiste a obrigação de entregar depois de uma escolha. `ResponseGuard` verifica a saída final e solicita uma única correção interna se um especialista violar essa política.
+
 O ponto de composição é `router/JarvisRouter.js`. A interface pública criada por `JarvisBootstrap.js` fica em `window.JarvisCognitive`. Toda saída usa o contrato versionado de `contracts/JarvisResponse.js`, mantendo aliases para integrações antigas.
 
 As ações já existentes de tarefas, agenda, projetos e finanças continuam disponíveis por uma ponte `localExecutor` fornecida por `script.js`. Ela é infraestrutura da aplicação; classificação, contexto e decisão de resposta pertencem ao novo pipeline.

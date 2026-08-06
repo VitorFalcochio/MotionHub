@@ -39,6 +39,8 @@ export function createJarvisResponse(result = {}, context = {}) {
     intent: context.intent?.name || result.intent || 'general',
     secondaryIntents: context.intent?.secondary || [],
     mode: context.mode?.name || result.mode || 'general',
+    strategy: result.conversation?.strategy || result.strategy || 'answer',
+    conversation: result.conversation || { strategy: 'answer', answerFirst: true, mustDeliver: false, maxQuestions: 1, allowChoices: false },
     representation: { type: representationType, ...(result.representation || {}) },
     actions,
     action: actions.find(action => action.type === 'canvas') || actions[0] || null,

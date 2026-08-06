@@ -11,6 +11,10 @@ window.JarvisCognitive = {
   getSkills: () => router.getSkills(),
   inspectMemory: () => router.inspectMemory(),
   forgetMemory: criteria => router.forgetMemory(criteria),
+  evaluateChoices: args => router.evaluateChoices(args),
+  registerChoice: selection => router.registerChoice(selection),
+  validateResponse: (content, conversation) => router.validateResponse(content, conversation),
+  responseRepairInstruction: (validation, conversation) => router.responseRepairInstruction(validation, conversation),
   router
 };
 

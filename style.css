@@ -4820,6 +4820,22 @@ img { max-width: 100%; }
   font-size: 9px;
 }
 .jarvis-choice-btn:hover { background: var(--jarvis-accent-soft); border-color: var(--jarvis-accent); transform: none; }
+
+.jarvis-choice-btn {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.jarvis-choice-btn small {
+  color: #93c5fd;
+  font-size: 8px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.jarvis-choice-btn.recommended { border-color: rgba(59, 130, 246, 0.55); }
+.jarvis-choice-btn.selected { color: #fff; background: rgba(37, 99, 235, 0.22); border-color: #3b82f6; }
+.jarvis-choice-btn:disabled { cursor: default; opacity: 0.62; }
 .jarvis-canvas-action {
   min-height: 32px;
   display: inline-flex;

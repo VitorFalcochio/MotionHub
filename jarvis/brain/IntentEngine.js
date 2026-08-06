@@ -11,7 +11,8 @@ const RULES = [
   { id: 'debug', priority: 73, patterns: [/\bdebug|depur|erro|falha|bug|nao funciona|401|403|404|500\b/] },
   { id: 'coding', priority: 72, patterns: [/programar|codigo|javascript|typescript|python|refator|implementar/] },
   { id: 'study', priority: 68, patterns: [/estudar|aprender|trilha de estudo|plano de estudos|me ensine/] },
-  { id: 'planner', priority: 66, patterns: [/planeje|planejamento|priorize|organize meu dia|proximos passos/] },
+  { id: 'planner', priority: 66, patterns: [/planeje|planejamento|priorize|organize meu dia|proximos passos|crie um plano|plano de validacao/] },
+  { id: 'business', priority: 64, patterns: [/nao pensei em nada|me ajude com (essas )?perguntas|quero criar (um|uma)|ideia de|modelo de negocio|monetiz|publico.?alvo|proposta de valor|\bmvp\b|rede social/] },
   { id: 'knowledge', priority: 50, patterns: [/^(o que e|explique|como funciona|qual a diferenca|para que serve)/] }
 ];
 

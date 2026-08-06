@@ -3,7 +3,7 @@ import { SkillRegistry } from './SkillRegistry.js';
 const INTENT_TO_SKILL = new Map([
   ['roadmap', 'roadmap'], ['canvas', 'canvas'], ['coding', 'coding'], ['debug', 'coding'], ['search', 'search'],
   ['database', 'database'], ['backend', 'backend'], ['frontend', 'frontend'],
-  ['architecture', 'architecture'], ['study', 'study'], ['planner', 'planner'], ['system', 'system'], ['memory', 'memory']
+  ['architecture', 'architecture'], ['study', 'study'], ['planner', 'planner'], ['system', 'system'], ['memory', 'memory'], ['business', 'business']
 ]);
 
 export class SkillEngine {
