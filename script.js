@@ -661,13 +661,18 @@ function syncNotificationSettingsState() {
 }
 
 function renderJarvisSettings() {
-  const configured = Boolean(localStorage.getItem(JARVIS_KEY_STORE));
+  const configured = Boolean(jarvisStoredGroqKey());
+  const connection = jarvisReadGroqStatus();
   const status = document.getElementById('jarvisKeyStatus');
   const remove = document.getElementById('removeGroqKeyBtn');
   const input = document.getElementById('settingsGroqKey');
   if (status) {
-    status.className = `settings-status ${configured ? 'configured' : 'not-configured'}`;
-    status.innerHTML = `<i class='bx ${configured ? 'bx-check-circle' : 'bx-info-circle'}'></i>${configured ? 'Chave configurada' : 'Não configurada'}`;
+    const connected = configured && connection?.status === 'connected';
+    const failed = configured && ['invalid', 'error'].includes(connection?.status);
+    const label = !configured ? 'Não configurada' : connected ? 'Groq conectado' : failed ? 'Chave salva · verificar' : 'Chave salva · não testada';
+    status.className = `settings-status ${connected ? 'configured' : failed ? 'connection-error' : 'not-configured'}`;
+    status.innerHTML = `<i class='bx ${connected ? 'bx-check-circle' : failed ? 'bx-error-circle' : 'bx-info-circle'}'></i>${label}`;
+    status.title = `${connection?.detail ? `${connection.detail} · ` : ''}Endereço atual: ${location.host}`;
   }
   if (remove) remove.disabled = !configured;
   if (input) { input.value = ''; input.type = 'password'; }
@@ -752,18 +757,30 @@ function initSettings() {
     input.type = input.type === 'password' ? 'text' : 'password';
     icon.className = `bx ${input.type === 'password' ? 'bx-show' : 'bx-hide'}`;
   });
-  document.getElementById('jarvisSettingsForm')?.addEventListener('submit', event => {
+  document.getElementById('jarvisSettingsForm')?.addEventListener('submit', async event => {
     event.preventDefault();
     const input = document.getElementById('settingsGroqKey');
     const key = input.value.trim();
-    if (!key) return toast(localStorage.getItem(JARVIS_KEY_STORE) ? 'Digite uma nova chave para substituir a atual.' : 'Informe uma chave Groq.', 'info');
+    if (!key) return toast(jarvisStoredGroqKey() ? 'Digite uma nova chave para substituir a atual.' : 'Informe uma chave Groq.', 'info');
+    const submit = event.currentTarget.querySelector('[type="submit"]');
+    submit.disabled = true;
     localStorage.setItem(JARVIS_KEY_STORE, key);
-    renderJarvisSettings();
-    toast('Chave Groq salva neste navegador.', 'success');
+    jarvisWriteGroqStatus('checking', 'Validando conexão');
+    try {
+      await jarvisValidateGroqKey(key);
+      renderJarvisSettings();
+      toast('Chave salva e conexão com a Groq validada.', 'success');
+    } catch (error) {
+      renderJarvisSettings();
+      toast(jarvisGroqErrorMessage(error), 'error');
+    } finally {
+      submit.disabled = false;
+    }
   });
   document.getElementById('removeGroqKeyBtn')?.addEventListener('click', () => {
     openModal('Remover chave Groq', `<div class="backup-restore-warning"><i class='bx bx-key'></i><div><strong>Remover a chave deste navegador?</strong><p>O Jarvis continuará funcionando com o cérebro local, mas respostas abertas via Groq ficarão indisponíveis.</p></div></div>`, () => {
       localStorage.removeItem(JARVIS_KEY_STORE);
+      localStorage.removeItem(JARVIS_KEY_STATUS_STORE);
       renderJarvisSettings();
       toast('Chave Groq removida.', 'success');
       return true;
@@ -5221,8 +5238,77 @@ function initNotes() {
 
 const JARVIS_MODEL    = 'llama-3.3-70b-versatile';
 const JARVIS_KEY_STORE = 'jarvis_groq_key';
+const JARVIS_KEY_STATUS_STORE = 'jarvis_groq_key_status_v1';
 const CODE_ASSET_INDEX_STORE = 'motion_code_assets_index_v1';
 const CODE_ASSET_SEARCH_REQUEST_STORE = 'motion_code_assets_search_request_v1';
+
+function jarvisStoredGroqKey() {
+  return String(localStorage.getItem(JARVIS_KEY_STORE) || '').trim();
+}
+
+function jarvisReadGroqStatus() {
+  try { return JSON.parse(localStorage.getItem(JARVIS_KEY_STATUS_STORE) || 'null'); }
+  catch { return null; }
+}
+
+function jarvisWriteGroqStatus(status, detail = '') {
+  localStorage.setItem(JARVIS_KEY_STATUS_STORE, JSON.stringify({ status, detail: String(detail || '').slice(0, 180), checkedAt: new Date().toISOString() }));
+}
+
+function jarvisGroqErrorMessage(error) {
+  const status = Number(error?.status || 0);
+  if (error?.code === 'missing_key') {
+    const host = typeof location !== 'undefined' ? location.host : 'atual';
+    return `A chave Groq não está configurada em **${host}**. Localhost, 127.0.0.1 e portas diferentes usam armazenamentos separados; salve a chave nas Configurações abertas por esta mesma URL.`;
+  }
+  if (status === 401) return 'A Groq recusou a chave salva (401). Verifique se ela foi copiada inteira ou gere uma nova chave no console da Groq.';
+  if (status === 403) return 'A chave foi reconhecida, mas não tem permissão para usar este modelo (403). Verifique as permissões da organização na Groq.';
+  if (status === 429) return 'A chave está configurada, mas o limite de uso da Groq foi atingido (429). Aguarde alguns instantes e tente novamente.';
+  if (status === 498) return 'A Groq está sem capacidade disponível neste momento (498). Tente novamente em instantes.';
+  if (status >= 500) return `A Groq está temporariamente indisponível (${status}). Sua chave continua salva.`;
+  if (error?.code === 'network_error') return 'Não consegui alcançar a Groq. A chave está salva, mas a conexão foi bloqueada ou está offline.';
+  if (status) return `A Groq rejeitou a solicitação (${status}): ${error.providerMessage || error.message}`;
+  return `Não consegui consultar a Groq: ${error?.message || 'erro desconhecido'}`;
+}
+
+async function jarvisGroqRequest(path, { method = 'POST', key = jarvisStoredGroqKey(), body, signal } = {}) {
+  if (!key) {
+    const error = new Error('Chave Groq ausente.');
+    error.code = 'missing_key';
+    throw error;
+  }
+  let response;
+  try {
+    response = await fetch(`https://api.groq.com/openai/v1/${path}`, {
+      method,
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      signal,
+      body: body === undefined ? undefined : JSON.stringify(body)
+    });
+  } catch (cause) {
+    if (cause?.name === 'AbortError') throw cause;
+    const error = new Error(cause?.message || 'Falha de rede ao acessar a Groq.');
+    error.code = 'network_error';
+    error.cause = cause;
+    throw error;
+  }
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const error = new Error(data.error?.message || `Groq HTTP ${response.status}`);
+    error.status = response.status;
+    error.code = data.error?.code || 'groq_http_error';
+    error.providerMessage = data.error?.message || '';
+    jarvisWriteGroqStatus(response.status === 401 ? 'invalid' : 'error', jarvisGroqErrorMessage(error));
+    throw error;
+  }
+  jarvisWriteGroqStatus('connected', 'Conexão validada');
+  return data;
+}
+
+async function jarvisValidateGroqKey(key, signal) {
+  await jarvisGroqRequest(`models/${encodeURIComponent(JARVIS_MODEL)}`, { method: 'GET', key, signal });
+  return true;
+}
 
 const JARVIS_ASSET_FALLBACK = [
   { id: 'asset-1', title: 'Magnetic CTA', category: 'buttons', categoryLabel: 'Botoes', level: 'Intermediario', desc: 'Botao escuro com brilho e resposta magnetica ao cursor.', tags: ['cta','hover','js','landing','dark'], hasJs: true },
@@ -6725,58 +6811,34 @@ function jarvisBuildCognitivePrompt(experience = {}) {
 }
 
 async function jarvisCallGroq(messages, experience = {}, signal = jarvisAbortController?.signal) {
-  const key = localStorage.getItem(JARVIS_KEY_STORE);
   const systemPrompt = jarvisBuildSystemPrompt();
   const cleanMessages = jarvisCleanMessages(messages);
-
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-    signal,
-    body: JSON.stringify({
-      model: JARVIS_MODEL,
-      messages: [{
-        role: 'system',
-        content: `${systemPrompt}
+  const data = await jarvisGroqRequest('chat/completions', { signal, body: {
+    model: JARVIS_MODEL,
+    messages: [{
+      role: 'system',
+      content: `${systemPrompt}
 
 Secao atual do usuario no Hub: ${sectionMeta[S.section]?.label || S.section}.
 Responda ou execute diretamente como padrao. Nao use show_choices para planejamento, brainstorming, proximos passos ou para perguntar como o usuario quer comecar. Use somente quando o contexto cognitivo abaixo disser explicitamente que escolhas estao permitidas. As opcoes devem ser decisoes concretas, nunca frases como "vamos explorar", "vamos comecar" ou "continuar".`
-        + `
+      + `
 Para pedidos sobre componentes, snippets, botoes, inputs, cards, loaders, animacoes ou landing pages, use search_code_assets. Quando fizer sentido, ofereca abrir a biblioteca filtrada com open_code_assets.${jarvisBuildCognitivePrompt(experience)}`
-      }, ...cleanMessages],
-      tools: JARVIS_TOOLS,
-      tool_choice: 'auto',
-      parallel_tool_calls: false,
-      max_tokens: 1600
-    })
-  });
-
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error?.message || `HTTP ${res.status}`);
-  }
-  const data = await res.json();
+    }, ...cleanMessages],
+    tools: JARVIS_TOOLS,
+    tool_choice: 'auto',
+    parallel_tool_calls: false,
+    max_tokens: 1600
+  } });
   return data.choices[0];
 }
 
 async function jarvisCallGroqNoTools(messages, experience = {}, signal = jarvisAbortController?.signal) {
-  const key = localStorage.getItem(JARVIS_KEY_STORE);
   const cleanMessages = jarvisCleanMessages(messages);
-  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-    signal,
-    body: JSON.stringify({
-      model: JARVIS_MODEL,
-      messages: [{ role: 'system', content: jarvisBuildCognitivePrompt(experience) }, ...cleanMessages],
-      max_tokens: 1600
-    })
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error?.message || `HTTP ${res.status}`);
-  }
-  const data = await res.json();
+  const data = await jarvisGroqRequest('chat/completions', { signal, body: {
+    model: JARVIS_MODEL,
+    messages: [{ role: 'system', content: jarvisBuildCognitivePrompt(experience) }, ...cleanMessages],
+    max_tokens: 1600
+  } });
   return data.choices[0];
 }
 
@@ -6837,9 +6899,11 @@ async function jarvisSend(source = 'panel') {
       return;
     }
 
-    const key = localStorage.getItem(JARVIS_KEY_STORE);
+    const key = jarvisStoredGroqKey();
     if (!key) {
-      const reply = { role: 'assistant', content: cognitive.response, brain: cognitive.source || 'fallback', experience: cognitive };
+      const localResponse = /configure a chave/i.test(cognitive.response || '') ? '' : String(cognitive.response || '').trim();
+      const missingKey = jarvisGroqErrorMessage({ code: 'missing_key' });
+      const reply = { role: 'assistant', content: localResponse ? `${localResponse}\n\n${missingKey}` : missingKey, brain: cognitive.source || 'fallback', experience: cognitive };
       jarvisMessages.push(reply);
       jarvisSetBrainStatus('fallback');
       jarvisAppendMsg('assistant', reply.content, reply.brain, cognitive);
@@ -6911,7 +6975,9 @@ async function jarvisSend(source = 'panel') {
     const cancelled = err?.name === 'AbortError';
     const fallback = cancelled
       ? { response: 'Interrompi o processamento. Ações que já haviam sido confirmadas continuam aplicadas.' }
-      : cognitive?.response ? { response: cognitive.response } : await jarvisTryLocal(text, { fallback: true });
+      : jarvisStoredGroqKey() && (err?.status || err?.code)
+        ? { response: jarvisGroqErrorMessage(err) }
+        : cognitive?.response ? { response: cognitive.response } : await jarvisTryLocal(text, { fallback: true });
     const experience = jarvisDecorateOperationActions(cognitive || { source: 'fallback', actions: [], representation: { type: 'text' } });
     const reply = { role: 'assistant', content: fallback.response, brain: 'fallback', experience };
     jarvisMessages.push(reply);
