@@ -1,0 +1,7 @@
+{
+  "id": "api",
+  "title": "APIs",
+  "keywords": ["api", "rest", "endpoint", "http", "webhook"],
+  "summary": "Uma API é um contrato entre sistemas. Bons contratos tornam validação, erros, autenticação, versionamento e observabilidade explícitos.",
+  "practices": ["Use códigos HTTP coerentes", "Padronize erros", "Versione mudanças incompatíveis", "Proteja operações mutáveis com autenticação e idempotência"]
+}

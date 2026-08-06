@@ -1,0 +1,7 @@
+{
+  "id": "jwt",
+  "title": "JWT",
+  "keywords": ["jwt", "token", "autenticacao", "access token", "refresh token"],
+  "summary": "JWT é um formato assinado de claims. Ele prova integridade, mas não criptografa o conteúdo por padrão e não substitui uma estratégia de sessão.",
+  "practices": ["Use expiração curta no access token", "Rotacione refresh tokens", "Valide issuer, audience e algoritmo", "Evite dados sensíveis no payload"]
+}

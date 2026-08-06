@@ -25,6 +25,7 @@ const S = {
   profiles: {},
   settingsTab: 'profile',
   activeInsights: [],
+  inboxFilter: 'all',
   modalSave: null,
   confirmOk: null,
   projectFilter: 'all',
@@ -253,6 +254,7 @@ async function loadAll() {
   if (data) {
     DATA_FIELDS.forEach(field => { S[field] = data[field] || []; });
   }
+  normalizeInboxState();
   return data;
 }
 
@@ -282,7 +284,7 @@ function saveHabits()       { syncData({ habits:       S.habits }); }
 function saveGoals()        { syncData({ goals:        S.goals }); }
 function saveReviews()      { syncData({ reviews:      S.reviews }); }
 function saveNotes()        { syncData({ notes:        S.notes }); }
-function saveInbox()        { syncData({ inbox:        S.inbox }); }
+function saveInbox()        { normalizeInboxState(); syncData({ inbox:        S.inbox }); }
 function saveDailyPlans()   { syncData({ dailyPlans:   S.dailyPlans }); }
 function saveStudyPrograms(){ syncData({ studyPrograms:S.studyPrograms }); }
 function saveStudyTerms()   { syncData({ studyTerms:   S.studyTerms }); }
@@ -910,6 +912,7 @@ function seedNotes(existingData) {
 const sectionMeta = {
   dashboard:  { label: 'Dashboard',        btnLabel: null },
   jarvis:     { label: 'Jarvis',           btnLabel: null },
+  canvas:     { label: 'Canvas',           btnLabel: null },
   agenda:     { label: 'Agenda',           btnLabel: 'Novo Evento' },
   studies:    { label: 'Estudos',          btnLabel: 'Nova Matéria' },
   projects:   { label: 'Projetos',          btnLabel: 'Novo Projeto' },
@@ -925,7 +928,7 @@ const sectionMeta = {
   settings:   { label: 'Configurações',     btnLabel: null }
 };
 
-const sectionOrder = ['dashboard', 'projects', 'tasks', 'habits', 'agenda', 'studies', 'jarvis', 'ideas', 'goals', 'crm', 'financial', 'review', 'prompts', 'notes', 'settings'];
+const sectionOrder = ['dashboard', 'projects', 'tasks', 'habits', 'agenda', 'studies', 'jarvis', 'canvas', 'ideas', 'goals', 'crm', 'financial', 'review', 'prompts', 'notes', 'settings'];
 
 function navigateTo(section, direction = null) {
   const contentArea = document.querySelector('.content-area');
@@ -943,7 +946,11 @@ function navigateTo(section, direction = null) {
   const navItem = document.querySelector(`.nav-item[data-section="${section}"]`);
   if (navItem) navItem.classList.add('active');
   S.section = section;
-  document.getElementById('jarvisBtn')?.classList.toggle('hide-on-page', section === 'jarvis');
+  document.querySelector('.content-area')?.classList.toggle('jarvis-active', section === 'jarvis');
+  document.querySelector('.content-area')?.classList.toggle('canvas-active', section === 'canvas');
+  const immersiveSection = section === 'jarvis' || section === 'canvas';
+  document.getElementById('jarvisBtn')?.classList.toggle('hide-on-page', immersiveSection);
+  if (immersiveSection) document.getElementById('jarvisProactive')?.classList.remove('open');
   syncMobileNavigation(section);
   closeMobileNavigation();
   toggleMobileSearch(false);
@@ -958,6 +965,7 @@ function navigateTo(section, direction = null) {
     btn.style.display = 'none';
   }
   renderSection(section);
+  window.dispatchEvent(new CustomEvent('motion:section-change', { detail: { section } }));
   updateNotifBadge();
 }
 
@@ -1009,6 +1017,7 @@ function navigateByShortcut(direction) {
 function renderSection(section) {
   if (section === 'agenda') renderAgenda();
   else if (section === 'jarvis') renderJarvisPage();
+  else if (section === 'canvas') window.dispatchEvent(new CustomEvent('motion:canvas-open'));
   else if (section === 'dashboard') renderDashboard();
   else if (section === 'projects') renderProjects();
   else if (section === 'tasks') renderTasks();
@@ -1437,29 +1446,143 @@ function renderProjectRhythm() {
 }
 
 /* ===== UNIVERSAL INBOX ===== */
+const INBOX_KIND_META = {
+  inbox: { label: 'Inbox', icon: 'bx-inbox' },
+  task: { label: 'Tarefa', icon: 'bx-check-square' },
+  note: { label: 'Nota', icon: 'bx-note' },
+  idea: { label: 'Ideia', icon: 'bx-bulb' }
+};
+
+const INBOX_STATUS_META = {
+  new: { label: 'Novo', icon: 'bx-star' },
+  reviewed: { label: 'Revisado', icon: 'bx-check-circle' }
+};
+
+const INBOX_SOURCE_META = {
+  manual: { label: 'Manual', icon: 'bx-edit-alt' },
+  jarvis: { label: 'Jarvis', icon: 'bx-bot' },
+  shortcut: { label: 'Atalho', icon: 'bx-keyboard' },
+  command: { label: 'Comando', icon: 'bx-edit-alt' }
+};
+
+function normalizeInboxKind(kind) {
+  return Object.prototype.hasOwnProperty.call(INBOX_KIND_META, kind) ? kind : 'inbox';
+}
+
+function normalizeInboxStatus(status) {
+  return Object.prototype.hasOwnProperty.call(INBOX_STATUS_META, status) ? status : 'new';
+}
+
+function normalizeInboxSource(source) {
+  const value = String(source || 'manual').toLowerCase();
+  if (value === 'jarvis' || value === 'manual' || value === 'shortcut' || value === 'command') return value;
+  return 'manual';
+}
+
+function normalizeInboxItem(item = {}) {
+  const createdAt = item.createdAt || new Date().toISOString();
+  const text = String(item.text || item.content || item.title || '').trim();
+  return {
+    id: item.id || uid(),
+    text,
+    project: String(item.project || ''),
+    suggestedKind: normalizeInboxKind(item.suggestedKind || item.kind || 'inbox'),
+    status: normalizeInboxStatus(item.status),
+    source: normalizeInboxSource(item.source),
+    notes: String(item.notes || ''),
+    tags: Array.isArray(item.tags) ? item.tags.map(tag => String(tag || '').trim()).filter(Boolean).slice(0, 6) : [],
+    createdAt,
+    updatedAt: item.updatedAt || createdAt,
+    owner_id: item.owner_id || currentUserId,
+    owner_name: item.owner_name || currentUserName
+  };
+}
+
+function normalizeInboxState() {
+  if (!Array.isArray(S.inbox)) S.inbox = [];
+  S.inbox = S.inbox.map(normalizeInboxItem).sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+}
+
+function createInboxItem(payload) {
+  return normalizeInboxItem({
+    ...payload,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    owner_id: currentUserId,
+    owner_name: currentUserName
+  });
+}
+
+function inboxKindMeta(kind) {
+  return INBOX_KIND_META[normalizeInboxKind(kind)] || INBOX_KIND_META.inbox;
+}
+
+function inboxStatusMeta(status) {
+  return INBOX_STATUS_META[normalizeInboxStatus(status)] || INBOX_STATUS_META.new;
+}
+
+function inboxSourceMeta(source) {
+  return INBOX_SOURCE_META[normalizeInboxSource(source)] || INBOX_SOURCE_META.manual;
+}
+
+function inboxMatchesFilter(item, filter) {
+  if (filter === 'all') return true;
+  if (filter === 'new' || filter === 'reviewed') return item.status === filter;
+  return item.suggestedKind === filter;
+}
+
+function inboxFilterLabel(filter) {
+  const labels = {
+    all: 'Tudo',
+    new: 'Novos',
+    reviewed: 'Revisados',
+    inbox: 'Inbox',
+    task: 'Tarefas',
+    note: 'Notas',
+    idea: 'Ideias'
+  };
+  return labels[filter] || 'Tudo';
+}
+
+function setInboxFilter(filter) {
+  S.inboxFilter = filter || 'all';
+  renderInbox();
+}
+
 function captureTitle(text) {
   return String(text || '').split(/\r?\n/).map(line => line.trim()).find(Boolean) || 'Sem título';
 }
 
-function openInboxCapture(defaultKind = 'inbox') {
+function openInboxCapture(defaultKind = 'inbox', source = 'manual') {
   globalSearchClose();
-  openModal('Captura rápida', `
+  const initialKind = normalizeInboxKind(defaultKind);
+  const initialSource = normalizeInboxSource(source);
+  openModal('Inbox Universal', `
     <div class="capture-intro">
       <span class="capture-intro-icon"><i class='bx bx-edit-alt'></i></span>
-      <div><strong>Tire isso da cabeça.</strong><p>Registre agora e decida o destino quando estiver pronto.</p></div>
+      <div><strong>Tire isso da cabeça.</strong><p>Tudo entra na Inbox Universal primeiro. Depois você decide se vira tarefa, nota ou ideia.</p></div>
     </div>
     <div class="form-group">
-      <label class="form-label">O que você quer registrar?</label>
+      <label class="form-label">O que você quer capturar?</label>
       <textarea class="form-textarea capture-textarea" id="f-capture-text" rows="5" placeholder="Uma tarefa, ideia, lembrete, anotação..."></textarea>
     </div>
     <div class="form-row">
       <div class="form-group">
-        <label class="form-label">Destino</label>
+        <label class="form-label">Destino sugerido</label>
         <select class="form-select" id="f-capture-kind">
-          <option value="inbox"${defaultKind==='inbox'?' selected':''}>Caixa de entrada</option>
-          <option value="task"${defaultKind==='task'?' selected':''}>Tarefa</option>
-          <option value="note"${defaultKind==='note'?' selected':''}>Nota</option>
-          <option value="idea"${defaultKind==='idea'?' selected':''}>Ideia</option>
+          <option value="inbox"${initialKind==='inbox'?' selected':''}>Inbox</option>
+          <option value="task"${initialKind==='task'?' selected':''}>Tarefa</option>
+          <option value="note"${initialKind==='note'?' selected':''}>Nota</option>
+          <option value="idea"${initialKind==='idea'?' selected':''}>Ideia</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Origem</label>
+        <select class="form-select" id="f-capture-source">
+          <option value="manual"${initialSource==='manual'?' selected':''}>Manual</option>
+          <option value="shortcut"${initialSource==='shortcut'?' selected':''}>Atalho</option>
+          <option value="command"${initialSource==='command'?' selected':''}>Comando</option>
+          <option value="jarvis"${initialSource==='jarvis'?' selected':''}>Jarvis</option>
         </select>
       </div>
       <div class="form-group">
@@ -1474,16 +1597,14 @@ function openInboxCapture(defaultKind = 'inbox') {
     const text = document.getElementById('f-capture-text').value.trim();
     if (!text) { toast('Escreva algo para capturar.', 'error'); return false; }
     const kind = document.getElementById('f-capture-kind').value;
+    const sourceValue = document.getElementById('f-capture-source').value;
     const project = document.getElementById('f-capture-project').value;
-    if (kind === 'inbox') {
-      S.inbox.unshift({ id: uid(), text, project, createdAt: new Date().toISOString(), owner_id: currentUserId, owner_name: currentUserName });
-      saveInbox();
-    } else {
-      createFromCapture({ text, project }, kind);
-    }
+    S.inbox.unshift(createInboxItem({ text, project, suggestedKind: kind, source: sourceValue, status: 'new' }));
+    saveInbox();
     renderDashboard();
-    toast(kind === 'inbox' ? 'Item guardado na caixa de entrada.' : 'Captura organizada com sucesso!');
+    toast(`Captura salva na Inbox Universal como ${inboxKindMeta(kind).label.toLowerCase()}.`);
   });
+  document.getElementById('modalSave').innerHTML = '<i class="bx bx-save"></i> Adicionar à inbox';
   setTimeout(() => document.getElementById('f-capture-text')?.focus(), 40);
 }
 
@@ -1514,34 +1635,71 @@ function organizeInboxItem(id, kind) {
   toast(kind === 'task' ? 'Transformado em tarefa.' : kind === 'note' ? 'Transformado em nota.' : 'Transformado em ideia.');
 }
 
+function reviewInboxItem(id) {
+  const item = S.inbox.find(entry => entry.id === id);
+  if (!item) return;
+  item.status = 'reviewed';
+  item.updatedAt = new Date().toISOString();
+  saveInbox();
+  renderDashboard();
+  toast('Item marcado como revisado.', 'info');
+}
+
 function deleteInboxItem(id) {
   S.inbox = S.inbox.filter(entry => entry.id !== id);
   saveInbox();
-  renderInbox();
+  renderDashboard();
   toast('Captura removida.', 'info');
 }
 
 function renderInbox() {
   const target = document.getElementById('inboxList');
   if (!target) return;
-  const items = S.inbox.slice(0, 6);
-  target.innerHTML = items.length ? items.map(item => `
-    <div class="inbox-item">
-      <span class="inbox-item-icon"><i class='bx bx-edit-alt'></i></span>
-      <div class="inbox-item-content">
-        <strong>${escHtml(captureTitle(item.text))}</strong>
-        <span>${escHtml(item.project || 'Não organizado')} · ${new Date(item.createdAt).toLocaleDateString('pt-BR')}</span>
+  normalizeInboxState();
+  const filters = ['all', 'new', 'reviewed', 'task', 'note', 'idea'];
+  const items = S.inbox.filter(item => inboxMatchesFilter(item, S.inboxFilter)).slice(0, 8);
+  const total = S.inbox.length;
+  const newCount = S.inbox.filter(item => item.status === 'new').length;
+  const reviewedCount = total - newCount;
+  target.innerHTML = `
+    <div class="inbox-toolbar">
+      <div class="inbox-filters">
+        ${filters.map(filter => `<button class="inbox-filter${S.inboxFilter === filter ? ' active' : ''}" type="button" onclick="setInboxFilter('${filter}')">${escHtml(inboxFilterLabel(filter))}</button>`).join('')}
       </div>
-      <div class="inbox-item-actions">
-        <button type="button" title="Transformar em tarefa" onclick="organizeInboxItem('${item.id}','task')"><i class='bx bx-check-square'></i></button>
-        <button type="button" title="Transformar em nota" onclick="organizeInboxItem('${item.id}','note')"><i class='bx bx-note'></i></button>
-        <button type="button" title="Transformar em ideia" onclick="organizeInboxItem('${item.id}','idea')"><i class='bx bx-bulb'></i></button>
-        <button class="danger" type="button" title="Remover" onclick="deleteInboxItem('${item.id}')"><i class='bx bx-x'></i></button>
-      </div>
-    </div>`).join('') : `
-      <button class="inbox-empty" type="button" onclick="openInboxCapture()">
-        <i class='bx bx-check-circle'></i><span>Caixa de entrada vazia</span><small>Capture qualquer coisa com um único atalho.</small>
-      </button>`;
+      <div class="inbox-summary"><i class='bx bx-layer'></i>${total} itens · ${newCount} novos · ${reviewedCount} revisados</div>
+    </div>
+    ${items.length ? items.map(item => {
+      const kindMeta = inboxKindMeta(item.suggestedKind);
+      const statusMeta = inboxStatusMeta(item.status);
+      const sourceMeta = inboxSourceMeta(item.source);
+      const dateLabel = new Date(item.createdAt).toLocaleDateString('pt-BR');
+      const title = captureTitle(item.text);
+      const excerpt = String(item.text || '').split(/\r?\n/).slice(1).join(' ').trim();
+      return `
+      <div class="inbox-item" data-kind="${item.suggestedKind}" data-status="${item.status}">
+        <span class="inbox-item-icon"><i class='bx ${kindMeta.icon}'></i></span>
+        <div class="inbox-item-content">
+          <strong>${escHtml(title)}</strong>
+          <span>${escHtml(item.project || 'Sem projeto')} · ${dateLabel}${excerpt ? ` · ${escHtml(excerpt.slice(0, 90))}` : ''}</span>
+          <div class="inbox-item-badges">
+            <span class="inbox-chip ${item.status}"><i class='bx ${statusMeta.icon}'></i>${statusMeta.label}</span>
+            <span class="inbox-chip ${item.suggestedKind}"><i class='bx ${kindMeta.icon}'></i>${kindMeta.label}</span>
+            <span class="inbox-chip source"><i class='bx ${sourceMeta.icon}'></i>${sourceMeta.label}</span>
+          </div>
+        </div>
+        <div class="inbox-item-actions">
+          <button type="button" title="Marcar como revisado" onclick="reviewInboxItem('${item.id}')"><i class='bx bx-check'></i></button>
+          <button type="button" title="Transformar em tarefa" onclick="organizeInboxItem('${item.id}','task')"><i class='bx bx-check-square'></i></button>
+          <button type="button" title="Transformar em nota" onclick="organizeInboxItem('${item.id}','note')"><i class='bx bx-note'></i></button>
+          <button type="button" title="Transformar em ideia" onclick="organizeInboxItem('${item.id}','idea')"><i class='bx bx-bulb'></i></button>
+          <button class="danger" type="button" title="Remover" onclick="deleteInboxItem('${item.id}')"><i class='bx bx-x'></i></button>
+        </div>
+      </div>`;
+    }).join('') : `
+      <button class="inbox-empty" type="button" onclick="openInboxCapture('${S.inboxFilter === 'task' || S.inboxFilter === 'note' || S.inboxFilter === 'idea' ? S.inboxFilter : 'inbox'}')">
+        <i class='bx bx-inbox'></i><span>Inbox Universal vazia</span><small>Capture tudo primeiro e organize depois.</small>
+      </button>`}
+  `;
 }
 
 /* ===== DAILY PLANNER ===== */
@@ -1814,7 +1972,7 @@ function showProactiveInsight(insight) {
   if (!bubble || !text || !insight) return;
   bubble.dataset.insightId = insight.id;
   text.textContent = `${insight.title}: ${insight.message}`;
-  bubble.classList.add('open');
+  if (S.section !== 'jarvis' && S.section !== 'canvas') bubble.classList.add('open');
   const content = `**${insight.title}**\n\n${insight.message}${insight.detail ? `\n\n${insight.detail}` : ''}`;
   jarvisMessages.push({ role: 'assistant', content, brain: 'local', proactive: true });
   jarvisGreeted = true;
@@ -4523,13 +4681,13 @@ async function startApp() {
    ==================================================== */
 
 const COMMAND_CENTER_ACTIONS = [
-  { id: 'capture', title: 'Capturar na caixa de entrada', sub: 'Registrar qualquer coisa sem interromper o fluxo', icon: 'bx-edit-alt', keywords: 'capturar inbox entrada lembrar' },
+  { id: 'capture', title: 'Capturar na Inbox Universal', sub: 'Registrar qualquer coisa sem interromper o fluxo', icon: 'bx-inbox', keywords: 'capturar inbox entrada lembrar universal' },
   { id: 'plan-day', title: 'Planejar meu dia', sub: 'Definir intenção e três prioridades', icon: 'bx-sun', keywords: 'planejar hoje prioridades foco' },
   { id: 'jarvis-insights', title: 'Ver recomendações do Jarvis', sub: 'Prioridades, projetos parados e sinais do workspace', icon: 'bx-bot', keywords: 'jarvis insights recomendacoes projetos parados prioridades' },
   { id: 'customize-dashboard', title: 'Personalizar Dashboard', sub: 'Reordenar ou ocultar blocos', icon: 'bx-slider-alt', keywords: 'dashboard personalizar widgets organizar' },
   { id: 'new-task', title: 'Criar nova tarefa', sub: 'Adicionar uma tarefa completa', icon: 'bx-check-square', keywords: 'tarefa criar adicionar' },
-  { id: 'new-note', title: 'Criar nota rápida', sub: 'Capturar diretamente como nota', icon: 'bx-note', keywords: 'nota criar escrever' },
-  { id: 'new-idea', title: 'Registrar uma ideia', sub: 'Capturar diretamente como ideia', icon: 'bx-bulb', keywords: 'ideia criar registrar' },
+  { id: 'new-note', title: 'Criar nota rápida', sub: 'Capturar com sugestão de nota', icon: 'bx-note', keywords: 'nota criar escrever inbox' },
+  { id: 'new-idea', title: 'Registrar uma ideia', sub: 'Capturar com sugestão de ideia', icon: 'bx-bulb', keywords: 'ideia criar registrar inbox' },
   { id: 'new-transaction', title: 'Registrar lançamento financeiro', sub: 'Adicionar uma receita ou despesa', icon: 'bx-dollar-circle', keywords: 'financeiro gasto despesa receita transacao' },
   { id: 'new-subject', title: 'Criar nova matéria', sub: 'Adicionar uma matéria ao período acadêmico', icon: 'bx-book-open', keywords: 'estudos materia faculdade disciplina criar' },
   { id: 'go-settings', title: 'Abrir Configurações', sub: 'Gerenciar perfil, aparência, alertas, Jarvis e dados', icon: 'bx-cog', keywords: 'configuracoes preferencias perfil aparencia notificacoes backup jarvis' },
@@ -4550,13 +4708,13 @@ function runCommand(command) {
   document.getElementById('globalSearch').value = '';
   globalSearchClose();
   const actions = {
-    capture: () => openInboxCapture(),
+    capture: () => openInboxCapture('inbox', 'command'),
     'plan-day': () => openDailyPlanner(),
     'jarvis-insights': () => { navigateTo('dashboard'); document.getElementById('jarvisInsightsList')?.scrollIntoView({ behavior: 'smooth', block: 'center' }); },
     'customize-dashboard': () => { navigateTo('dashboard'); openDashboardCustomizer(); },
     'new-task': () => newTask(),
-    'new-note': () => openInboxCapture('note'),
-    'new-idea': () => openInboxCapture('idea'),
+    'new-note': () => openInboxCapture('note', 'command'),
+    'new-idea': () => openInboxCapture('idea', 'command'),
     'new-transaction': () => newTransaction(),
     'new-subject': () => { navigateTo('studies'); newSubject(); },
     'go-settings': () => openSettings('profile'),
@@ -4590,7 +4748,17 @@ function globalSearchHandler() {
     if (tasks.length) groups.push({ label: 'Tarefas', icon: 'bx-check-square', bg: '--blue-dim', color: '--blue', section: 'tasks', items: tasks.map(t => ({ title: t.title, sub: t.project || 'Tarefa' })) });
 
     const inboxItems = S.inbox.filter(item => item.text.toLowerCase().includes(q)).slice(0, 3);
-    if (inboxItems.length) groups.push({ label: 'Caixa de entrada', icon: 'bx-inbox', bg: '--accent-dim', color: '--accent', section: 'dashboard', items: inboxItems.map(item => ({ title: captureTitle(item.text), sub: item.project || 'Não organizado' })) });
+    if (inboxItems.length) groups.push({
+      label: 'Inbox Universal',
+      icon: 'bx-inbox',
+      bg: '--accent-dim',
+      color: '--accent',
+      section: 'dashboard',
+      items: inboxItems.map(item => ({
+        title: captureTitle(item.text),
+        sub: `${item.project || 'Sem projeto'} · ${inboxKindMeta(item.suggestedKind).label} · ${inboxSourceMeta(item.source).label}`
+      }))
+    });
 
     const recurringEvents = S.tasks.filter(event => isRecurringEvent(event) && (
       event.title.toLowerCase().includes(q) || (event.project || '').toLowerCase().includes(q)
@@ -5083,6 +5251,8 @@ let jarvisOpen     = false;
 let jarvisMessages = [];
 let jarvisBusy     = false;
 let jarvisGreeted  = false;
+let jarvisAbortController = null;
+let jarvisProgressTimer = null;
 
 const JARVIS_TOOLS = [
   {
@@ -6097,6 +6267,13 @@ Quando o usuario pedir opiniao ou tiver duvida geral:
 - Separe fatos de inferencias quando estiver estimando.
 - Evite enrolacao. Seja util, especifico e proativo.
 
+Experiencia Jarvis:
+- Comece pela resposta direta e use o formato mais claro para o trabalho.
+- Preserve o topico, projeto e decisoes preparados pelo cerebro local.
+- Nunca afirme que executou uma acao sem o resultado confirmado de uma ferramenta.
+- Explique suposicoes e trade-offs que alterem materialmente a decisao.
+- Termine com uma continuidade util quando houver um proximo passo real.
+
 Uso de ferramentas:
 - Use ferramentas quando o usuario pedir para criar, mover, atualizar, excluir, listar ou consultar dados do Motion Hub.
 - Gerencie compromissos que se repetem com as ferramentas de eventos recorrentes. Interprete dias da semana como 0=domingo, 1=segunda, ... 6=sabado e use a data inicial mais proxima coerente com o pedido.
@@ -6274,7 +6451,7 @@ async function jarvisTryLocal(text, { fallback = false } = {}) {
   if (starts(/^(capture|capturar|anote|anotar|guarde|guardar)\b/) && /(caixa|entrada|inbox|lembrete|capture|anote)/.test(normalized)) {
     const content = String(text).replace(/^(capture|capturar|anote|anotar|guarde|guardar)(\s+(na|no)\s+(caixa de entrada|inbox))?\s*[:,-]?\s*/i, '').trim();
     if (!content) return { handled: true, response: 'O que você quer que eu guarde na caixa de entrada?' };
-    S.inbox.unshift({ id: uid(), text: content, project: jarvisLocalProject(text), createdAt: new Date().toISOString(), owner_id: currentUserId, owner_name: currentUserName });
+    S.inbox.unshift(createInboxItem({ text: content, project: jarvisLocalProject(text), suggestedKind: 'inbox', source: 'jarvis', status: 'new' }));
     saveInbox(); renderDashboard();
     return { handled: true, response: `Guardei **${captureTitle(content)}** na caixa de entrada.` };
   }
@@ -6358,14 +6535,19 @@ async function jarvisTryLocal(text, { fallback = false } = {}) {
   return { handled: false };
 }
 
-async function jarvisWebSearch(args = {}) {
+async function jarvisWebSearch(args = {}, signal = jarvisAbortController?.signal) {
   const query = String(args.query || '').trim();
   if (!query) return { success: false, error: 'Informe uma busca em query.' };
+  const configuredEndpoint = localStorage.getItem('motion_web_search_endpoint')?.trim();
+  const staticDevServer = ['5500', '5501', '5502'].includes(window.location.port);
+  const endpoint = configuredEndpoint || (staticDevServer ? '' : '/api/web-search');
+  if (!endpoint) return { success: false, error: 'Pesquisa web indisponível no Live Server. Use o servidor da API ou configure motion_web_search_endpoint.' };
 
   try {
-    const res = await fetch('/api/web-search', {
+    const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      signal,
       body: JSON.stringify({
         query,
         max_results: args.max_results || 6,
@@ -6382,14 +6564,30 @@ async function jarvisWebSearch(args = {}) {
   }
 }
 
-async function jarvisCallGroq(messages) {
+function jarvisCleanMessages(messages) {
+  return messages.map(message => {
+    const clean = { role: message.role, content: message.content || '' };
+    if (message.tool_calls) clean.tool_calls = message.tool_calls;
+    if (message.tool_call_id) clean.tool_call_id = message.tool_call_id;
+    if (message.name) clean.name = message.name;
+    return clean;
+  });
+}
+
+function jarvisBuildCognitivePrompt(experience = {}) {
+  const cognitive = experience.specialistContext || {};
+  return `\nContexto cognitivo preparado localmente:\n- Intenção: ${cognitive.intent || experience.intent || 'general'}\n- Modo: ${cognitive.mode || experience.mode || 'general'}\n- Tópico: ${cognitive.topic || 'não definido'}\n- Projeto: ${cognitive.project || 'não definido'}\n- Motivo da delegação: ${cognitive.groqReason || experience.groqReason || 'especialização necessária'}\nUse esse contexto sem repetir a análise do pipeline local.`;
+}
+
+async function jarvisCallGroq(messages, experience = {}, signal = jarvisAbortController?.signal) {
   const key = localStorage.getItem(JARVIS_KEY_STORE);
   const systemPrompt = jarvisBuildSystemPrompt();
-  const cleanMessages = messages.map(({ brain, ...message }) => message);
+  const cleanMessages = jarvisCleanMessages(messages);
 
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+    signal,
     body: JSON.stringify({
       model: JARVIS_MODEL,
       messages: [{
@@ -6399,7 +6597,7 @@ async function jarvisCallGroq(messages) {
 Secao atual do usuario no Hub: ${sectionMeta[S.section]?.label || S.section}.
 Use show_choices quando houver varios caminhos bons, quando faltar uma decisao importante, ou quando o usuario pedir um plano. As opcoes devem ser curtas, acionaveis e em portugues brasileiro.`
         + `
-Para pedidos sobre componentes, snippets, botoes, inputs, cards, loaders, animacoes ou landing pages, use search_code_assets. Quando fizer sentido, ofereca abrir a biblioteca filtrada com open_code_assets.`
+Para pedidos sobre componentes, snippets, botoes, inputs, cards, loaders, animacoes ou landing pages, use search_code_assets. Quando fizer sentido, ofereca abrir a biblioteca filtrada com open_code_assets.${jarvisBuildCognitivePrompt(experience)}`
       }, ...cleanMessages],
       tools: JARVIS_TOOLS,
       tool_choice: 'auto',
@@ -6416,15 +6614,16 @@ Para pedidos sobre componentes, snippets, botoes, inputs, cards, loaders, animac
   return data.choices[0];
 }
 
-async function jarvisCallGroqNoTools(messages) {
+async function jarvisCallGroqNoTools(messages, experience = {}, signal = jarvisAbortController?.signal) {
   const key = localStorage.getItem(JARVIS_KEY_STORE);
-  const cleanMessages = messages.map(({ brain, ...message }) => message);
+  const cleanMessages = jarvisCleanMessages(messages);
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+    signal,
     body: JSON.stringify({
       model: JARVIS_MODEL,
-      messages: cleanMessages,
+      messages: [{ role: 'system', content: jarvisBuildCognitivePrompt(experience) }, ...cleanMessages],
       max_tokens: 1600
     })
   });
@@ -6437,35 +6636,67 @@ async function jarvisCallGroqNoTools(messages) {
 }
 
 async function jarvisSend(source = 'panel') {
+  if (jarvisBusy) {
+    jarvisAbortController?.abort();
+    jarvisSetProgress('Cancelando operação');
+    return;
+  }
   const input = document.getElementById(source === 'page' ? 'jarvisPageInput' : 'jarvisInput');
   const text  = input?.value?.trim();
-  if (!text || jarvisBusy) return;
+  if (!text) return;
 
   input.value = '';
   input.style.height = 'auto';
   jarvisMessages.push({ role: 'user', content: text });
   jarvisAppendMsg('user', text);
+  jarvisAbortController = new AbortController();
   jarvisSetBusy(true);
+  const cognitiveStartedAt = performance.now();
+  let cognitive = null;
 
   try {
-    const local = await jarvisTryLocal(text);
-    if (local.handled) {
-      const reply = { role: 'assistant', content: local.response, brain: 'local' };
+    if (window.JarvisCognitive) {
+      cognitive = await window.JarvisCognitive.process(text, {
+        signal: jarvisAbortController.signal,
+        onProgress: stage => jarvisSetProgress(stage.label),
+        localExecutor: message => jarvisTryLocal(message),
+        hub: { execute: command => jarvisTryLocal(command.text) },
+        webSearch: args => jarvisWebSearch(args, jarvisAbortController.signal),
+        workspace: {
+          projects: S.projects.slice(0, 12).map(project => project.name),
+          goals: S.goals.slice(0, 12).map(goal => goal.objective),
+          openFiles: [],
+          section: S.section,
+          selection: window.motionCanvas?.getSelection?.() || null
+        }
+      });
+    } else {
+      const legacy = await jarvisTryLocal(text);
+      const contingency = legacy.handled ? legacy : await jarvisTryLocal(text, { fallback: true });
+      cognitive = legacy.handled
+        ? { ...legacy, source: 'local', needsGroq: false }
+        : { response: contingency.response, source: 'fallback', needsGroq: true };
+    }
+
+    if (!cognitive.needsGroq) {
+      const brain = cognitive.source || 'local';
+      const reply = { role: 'assistant', content: cognitive.response, brain, experience: cognitive };
       jarvisMessages.push(reply);
-      jarvisSetBusy(false);
       jarvisSetBrainStatus('local');
-      jarvisAppendMsg('assistant', reply.content, 'local');
+      jarvisAppendMsg('assistant', reply.content, brain, cognitive);
+      jarvisExecuteAutoActions(cognitive);
       return;
     }
 
     const key = localStorage.getItem(JARVIS_KEY_STORE);
     if (!key) {
-      const fallback = await jarvisTryLocal(text, { fallback: true });
-      const reply = { role: 'assistant', content: fallback.response, brain: 'fallback' };
+      const reply = { role: 'assistant', content: cognitive.response, brain: cognitive.source || 'fallback', experience: cognitive };
       jarvisMessages.push(reply);
-      jarvisSetBusy(false);
       jarvisSetBrainStatus('fallback');
-      jarvisAppendMsg('assistant', reply.content, 'fallback');
+      jarvisAppendMsg('assistant', reply.content, reply.brain, cognitive);
+      window.JarvisCognitive?.completeExternal(cognitive.requestId, text, reply.content, 'fallback', {
+        intent: cognitive.intent, mode: cognitive.mode, responseTime: performance.now() - cognitiveStartedAt
+      });
       return;
     }
 
@@ -6476,44 +6707,79 @@ async function jarvisSend(source = 'panel') {
 
     let choice;
     try {
-      choice = await jarvisCallGroq(jarvisMessages);
+      jarvisSetProgress('Consultando especialista');
+      choice = await jarvisCallGroq(jarvisMessages, cognitive, jarvisAbortController.signal);
       if (choice.finish_reason === 'failed_generation') throw new Error('failed_generation');
-    } catch (_) {
-      choice = await jarvisCallGroqNoTools(jarvisFallbackMsgs());
+    } catch (error) {
+      if (error?.name === 'AbortError') throw error;
+      choice = await jarvisCallGroqNoTools(jarvisFallbackMsgs(), cognitive, jarvisAbortController.signal);
     }
 
     while (choice.finish_reason === 'tool_calls') {
+      if (jarvisAbortController.signal.aborted) throw new DOMException('Operação cancelada.', 'AbortError');
       const msg = choice.message;
       jarvisMessages.push(msg);
       for (const tc of msg.tool_calls) {
+        jarvisSetProgress(`Executando ${tc.function.name.replace(/_/g, ' ')}`);
         const result = await jarvisRunTool(tc.function.name, JSON.parse(tc.function.arguments || '{}'));
         jarvisMessages.push({ role: 'tool', tool_call_id: tc.id, content: JSON.stringify(result) });
       }
       try {
-        choice = await jarvisCallGroq(jarvisMessages);
+        jarvisSetProgress('Validando resultado');
+        choice = await jarvisCallGroq(jarvisMessages, cognitive, jarvisAbortController.signal);
         if (choice.finish_reason === 'failed_generation') throw new Error('failed_generation');
-      } catch (_) {
-        choice = await jarvisCallGroqNoTools(jarvisFallbackMsgs());
+      } catch (error) {
+        if (error?.name === 'AbortError') throw error;
+        choice = await jarvisCallGroqNoTools(jarvisFallbackMsgs(), cognitive, jarvisAbortController.signal);
       }
     }
 
     const reply = choice.message;
     reply.brain = 'groq';
+    reply.experience = { ...cognitive, source: 'groq', message: reply.content, response: reply.content, needsGroq: false, status: 'completed' };
     jarvisMessages.push(reply);
-    jarvisSetBusy(false);
+    window.JarvisCognitive?.completeExternal(cognitive.requestId, text, reply.content || '', 'groq', {
+      intent: cognitive.intent, mode: cognitive.mode, responseTime: performance.now() - cognitiveStartedAt
+    });
     jarvisSetBrainStatus('groq');
-    jarvisAppendMsg('assistant', reply.content || '…', 'groq');
+    jarvisAppendMsg('assistant', reply.content || '…', 'groq', reply.experience);
   } catch (err) {
-    const fallback = await jarvisTryLocal(text, { fallback: true });
-    const reply = { role: 'assistant', content: fallback.response, brain: 'local' };
+    const cancelled = err?.name === 'AbortError';
+    const fallback = cancelled
+      ? { response: 'Interrompi o processamento. Ações que já haviam sido confirmadas continuam aplicadas.' }
+      : cognitive?.response ? { response: cognitive.response } : await jarvisTryLocal(text, { fallback: true });
+    const experience = cognitive || { source: 'fallback', actions: [], representation: { type: 'text' } };
+    const reply = { role: 'assistant', content: fallback.response, brain: 'fallback', experience };
     jarvisMessages.push(reply);
-    jarvisSetBusy(false);
     jarvisSetBrainStatus('fallback');
-    jarvisAppendMsg('assistant', reply.content, 'fallback');
+    jarvisAppendMsg('assistant', reply.content, 'fallback', experience);
+    window.JarvisCognitive?.completeExternal(experience.requestId, text, reply.content, 'fallback', {
+      intent: experience.intent, mode: experience.mode, responseTime: performance.now() - cognitiveStartedAt
+    });
+  } finally {
+    jarvisSetBusy(false);
   }
 }
 
-function jarvisAppendMsg(role, content, brain = '') {
+function jarvisOpenCanvas(context = '') {
+  let incremental = document.getElementById('canvasRoot')?.dataset.hasDocument === 'true';
+  try { incremental ||= Boolean(JSON.parse(localStorage.getItem('motion_canvas_document_v1') || 'null')?.nodes?.length); } catch {}
+  const payload = { context, incremental };
+  localStorage.setItem('motion_canvas_pending_context', JSON.stringify(payload));
+  navigateTo('canvas');
+  window.motionCanvas?.applyContext(payload);
+  window.dispatchEvent(new CustomEvent('motion:canvas-context', { detail: payload }));
+}
+
+function jarvisActionMarkup(actions = []) {
+  if (!actions.length) return '';
+  return `<div class="jarvis-smart-actions">${actions.map(action => `
+    <button class="jarvis-smart-action" type="button" data-action-type="${jarvisAttr(action.type)}" data-action-payload="${jarvisAttr(JSON.stringify(action.payload || {}))}">
+      <i class='bx ${jarvisAttr(action.icon || 'bx-right-arrow-alt')}'></i>${jarvisEsc(action.label)}
+    </button>`).join('')}</div>`;
+}
+
+function jarvisAppendMsg(role, content, brain = '', experience = null) {
   ['jarvisMsgList', 'jarvisPageMsgList'].forEach(listId => {
     const list = document.getElementById(listId);
     if (!list) return;
@@ -6522,8 +6788,12 @@ function jarvisAppendMsg(role, content, brain = '') {
     if (role === 'user') {
       div.innerHTML = `<div class="jarvis-bubble">${jarvisEsc(content)}</div>`;
     } else if (role === 'assistant') {
-      const brainLabel = brain === 'groq' ? 'Groq' : brain === 'fallback' ? 'Local · contingência' : brain === 'local' ? 'Local' : '';
-      div.innerHTML = `<div class="jarvis-avatar-sm"><i class='bx bx-bot'></i></div><div class="jarvis-bubble">${brainLabel ? `<span class="jarvis-brain-badge ${brain}"><i class='bx ${brain === 'groq' ? 'bx-cloud' : 'bx-code-alt'}'></i>${brainLabel}</span>` : ''}${jarvisMd(content)}</div>`;
+      const brainLabels = { groq: 'Groq', fallback: 'Local · contingência', local: 'Local', social: 'Social', skill: 'Skill', knowledge: 'Knowledge', web: 'Pesquisa', system: 'Sistema' };
+      const brainLabel = brainLabels[brain] || '';
+      const representation = experience?.representation?.type;
+      const representationLabel = representation && representation !== 'text'
+        ? `<span class="jarvis-representation-badge">${jarvisEsc(representation)}</span>` : '';
+      div.innerHTML = `<div class="jarvis-avatar-sm"><span>&gt;_</span></div><div class="jarvis-bubble">${brainLabel ? `<span class="jarvis-brain-badge ${brain}"><i class='bx ${brain === 'groq' ? 'bx-cloud' : 'bx-code-alt'}'></i>${brainLabel}</span>` : ''}${representationLabel}${jarvisMd(content)}${jarvisActionMarkup(experience?.actions || [])}</div>`;
     } else {
       div.innerHTML = `<div class="jarvis-bubble"><i class='bx bx-error-circle'></i> ${jarvisEsc(content)}</div>`;
     }
@@ -6543,7 +6813,7 @@ function jarvisAppendChoices(title, description, options) {
     const div = document.createElement('div');
     div.className = 'jarvis-msg jarvis-msg-assistant';
     div.innerHTML = `
-      <div class="jarvis-avatar-sm"><i class='bx bx-bot'></i></div>
+      <div class="jarvis-avatar-sm"><span>&gt;_</span></div>
       <div class="jarvis-bubble jarvis-choice-card">
         <div class="jarvis-choice-title">${jarvisEsc(title || 'Escolha um caminho')}</div>
         ${description ? `<div class="jarvis-choice-desc">${jarvisEsc(description)}</div>` : ''}
@@ -6567,7 +6837,7 @@ function jarvisRenderHistory() {
   });
   jarvisMessages
     .filter(msg => msg.role === 'user' || msg.role === 'assistant')
-    .forEach(msg => jarvisAppendMsg(msg.role, msg.content || '', msg.brain || ''));
+    .forEach(msg => jarvisAppendMsg(msg.role, msg.content || '', msg.brain || '', msg.experience || null));
 }
 
 function jarvisEsc(s) {
@@ -6585,7 +6855,8 @@ function jarvisAttr(s) {
 function jarvisMd(s) {
   return jarvisEsc(s)
     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>');
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>');
 }
 
 function jarvisSetBusy(on) {
@@ -6594,12 +6865,51 @@ function jarvisSetBusy(on) {
   const pageTyping = document.getElementById('jarvisPageTyping');
   const btn    = document.getElementById('jarvisSend');
   const pageBtn = document.getElementById('jarvisPageSend');
-  if (typing) typing.style.display = on ? 'flex' : 'none';
-  if (pageTyping) pageTyping.style.display = on ? 'flex' : 'none';
-  if (btn)    btn.disabled = on;
-  if (pageBtn) pageBtn.disabled = on;
+  clearTimeout(jarvisProgressTimer);
+  [typing, pageTyping].filter(Boolean).forEach(element => { element.style.display = 'none'; });
+  if (on) {
+    jarvisProgressTimer = setTimeout(() => {
+      if (!jarvisBusy) return;
+      [typing, pageTyping].filter(Boolean).forEach(element => { element.style.display = 'flex'; });
+    }, 400);
+  }
+  [btn, pageBtn].filter(Boolean).forEach(button => {
+    button.disabled = false;
+    button.classList.toggle('is-cancel', on);
+    button.title = on ? 'Cancelar operação' : 'Enviar mensagem';
+    button.setAttribute('aria-label', button.title);
+    button.innerHTML = `<i class='bx ${on ? 'bx-stop' : 'bx-up-arrow-alt'}'></i>`;
+  });
+  if (on) jarvisSetProgress('Compreendendo pedido');
+  else jarvisAbortController = null;
   if (!on) document.getElementById('jarvisMsgList')?.scrollTo(0, 999999);
   if (!on) document.getElementById('jarvisPageMsgList')?.scrollTo(0, 999999);
+}
+
+function jarvisSetProgress(label = '') {
+  document.querySelectorAll('.jarvis-progress-label').forEach(element => { element.textContent = label; });
+}
+
+function jarvisRunSmartAction(action) {
+  if (!action || action.requiresConfirmation) return;
+  const payload = action.payload || {};
+  if (action.type === 'canvas') return jarvisOpenCanvas(payload.prompt || '');
+  if (action.type === 'navigate' && payload.section) return navigateTo(payload.section);
+  if (action.type === 'prompt') {
+    const usePage = S.section === 'jarvis' && document.getElementById('jarvisPageInput');
+    const input = document.getElementById(usePage ? 'jarvisPageInput' : 'jarvisInput');
+    if (!usePage && !jarvisOpen) jarvisToggle();
+    if (!input) return;
+    input.value = payload.prompt || '';
+    input.focus();
+    input.dispatchEvent(new Event('input'));
+    return;
+  }
+  window.dispatchEvent(new CustomEvent('motion:jarvis-action', { detail: action }));
+}
+
+function jarvisExecuteAutoActions(experience) {
+  (experience?.actions || []).filter(action => action.autoExecute && !action.requiresConfirmation).forEach(jarvisRunSmartAction);
 }
 
 function jarvisPromptKey() {
@@ -6612,7 +6922,7 @@ function jarvisPromptKey() {
 function jarvisGreet() {
   if (jarvisGreeted) return;
   jarvisGreeted = true;
-  jarvisAppendMsg('assistant', `Olá, **${currentUserName}**! Agora opero com dois cérebros: o **local**, rápido e sem limites para ações no Hub, e o **Groq** para análises e conversas mais abertas.`);
+  jarvisAppendMsg('assistant', `Olá, **${currentUserName}**! Meu cérebro local organiza contexto, memória, conhecimento e skills. O Groq entra apenas quando a tarefa exige análise especializada.`, 'social');
 }
 
 function jarvisSetBrainStatus(mode = 'hybrid') {
@@ -6638,7 +6948,7 @@ function jarvisToggle() {
   if (jarvisOpen) {
     if (!jarvisGreeted) {
       jarvisGreeted = true;
-      jarvisAppendMsg('assistant', `Olá, **${currentUserName}**! Agora opero com dois cérebros: o **local**, rápido e sem limites para ações no Hub, e o **Groq** para análises e conversas mais abertas.`);
+      jarvisAppendMsg('assistant', `Olá, **${currentUserName}**! Meu cérebro local organiza contexto, memória, conhecimento e skills. O Groq entra apenas quando a tarefa exige análise especializada.`, 'social');
     }
     setTimeout(() => document.getElementById('jarvisInput')?.focus(), 120);
   }
@@ -6661,6 +6971,7 @@ function initJarvis() {
   });
   document.getElementById('jarvisClear')?.addEventListener('click', () => {
     jarvisMessages = [];
+    window.JarvisCognitive?.resetConversation();
     jarvisGreeted  = false;
     jarvisRenderHistory();
     jarvisAppendMsg('assistant', 'Conversa limpa. Como posso ajudar?');
@@ -6677,6 +6988,7 @@ function initJarvis() {
   });
   document.getElementById('jarvisPageClear')?.addEventListener('click', () => {
     jarvisMessages = [];
+    window.JarvisCognitive?.resetConversation();
     jarvisGreeted = false;
     jarvisRenderHistory();
     jarvisAppendMsg('assistant', 'Conversa limpa. Como posso ajudar?');
@@ -6690,6 +7002,13 @@ function initJarvis() {
       input.value = btn.dataset.prompt || '';
       input.focus();
     });
+  });
+  document.addEventListener('click', e => {
+    const actionButton = e.target.closest('.jarvis-smart-action');
+    if (!actionButton) return;
+    let payload = {};
+    try { payload = JSON.parse(actionButton.dataset.actionPayload || '{}'); } catch {}
+    jarvisRunSmartAction({ type: actionButton.dataset.actionType, payload });
   });
   document.addEventListener('click', e => {
     const choiceBtn = e.target.closest('.jarvis-choice-btn');

@@ -1,0 +1,7 @@
+{
+  "id": "javascript",
+  "title": "JavaScript",
+  "keywords": ["javascript", "js", "async", "promise", "event loop"],
+  "summary": "JavaScript usa um modelo de execução orientado a eventos. Promises coordenam trabalho assíncrono sem bloquear a thread principal.",
+  "practices": ["Prefira módulos ES", "Trate rejeições assíncronas", "Evite estado global mutável", "Use APIs estruturadas para dados"]
+}

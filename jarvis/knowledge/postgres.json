@@ -1,0 +1,7 @@
+{
+  "id": "postgres",
+  "title": "PostgreSQL",
+  "keywords": ["postgres", "postgresql", "sql", "banco relacional", "schema"],
+  "summary": "PostgreSQL é um banco relacional transacional. Um bom modelo preserva invariantes com tipos, constraints e índices orientados às consultas reais.",
+  "practices": ["Use constraints no banco", "Indexe por padrões de consulta", "Analise planos com EXPLAIN", "Faça migrations reversíveis e backups testados"]
+}
