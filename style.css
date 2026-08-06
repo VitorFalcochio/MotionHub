@@ -3704,6 +3704,7 @@ img { max-width: 100%; }
 .settings-status { display: inline-flex; align-items: center; gap: 5px; flex: 0 0 auto; padding: 6px 9px; border-radius: 999px; font-size: 9px; font-weight: 750; }
 .settings-status.configured { color: var(--green); background: var(--green-dim); }
 .settings-status.not-configured { color: var(--text2); background: rgba(255,255,255,.05); }
+.settings-status.connection-error { color: var(--amber); background: var(--amber-dim); }
 .settings-actions .btn-danger:disabled { opacity: .38; cursor: not-allowed; }
 
 @media (max-width: 900px) {
