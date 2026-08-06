@@ -25,7 +25,7 @@ export class NodeManager {
       y: Number(node.y) || 0,
       width: Math.max(140, Number(node.width) || (type === 'title' ? 280 : 210)),
       height: Math.max(64, Number(node.height) || (type === 'title' ? 76 : 104)),
-      color: node.color || '#ffffff',
+      color: !node.color || /^#(?:fff|ffffff)$/i.test(node.color) ? '#111722' : node.color,
       accent: node.accent || '#2563eb',
       groupId: node.groupId || null,
       meta: node.meta && typeof node.meta === 'object' ? node.meta : {}

@@ -10,7 +10,8 @@ const LOADERS = {
   planner: () => import('./planner.skill.js'),
   system: () => import('./system.skill.js'),
   search: () => import('./search.skill.js'),
-  memory: () => import('./memory.skill.js')
+  memory: () => import('./memory.skill.js'),
+  business: () => import('./business.skill.js')
 };
 
 const REQUIRED_DESCRIPTOR_FIELDS = ['name', 'description', 'whenToUse', 'input', 'output', 'priority'];

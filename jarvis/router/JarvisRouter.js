@@ -12,6 +12,8 @@ import { HistoryManager } from '../history/HistoryManager.js';
 import { ModeEngine } from '../experience/ModeEngine.js';
 import { createJarvisResponse } from '../contracts/JarvisResponse.js';
 import { abortIfNeeded } from '../utils/JarvisError.js';
+import { ConversationPolicy } from '../experience/ConversationPolicy.js';
+import { ResponseGuard } from '../experience/ResponseGuard.js';
 
 const STAGE_LABELS = {
   normalize: 'Normalizando pedido', social: 'Interpretando conversa', intent: 'Identificando intenção',
@@ -33,6 +35,8 @@ export class JarvisRouter {
     this.groqPolicy = dependencies.groqPolicy || new GroqPolicy();
     this.history = dependencies.history || new HistoryManager();
     this.modes = dependencies.modes || new ModeEngine();
+    this.conversation = dependencies.conversation || new ConversationPolicy();
+    this.responseGuard = dependencies.responseGuard || new ResponseGuard();
   }
 
   async process(rawInput, runtime = {}) {
@@ -73,8 +77,10 @@ export class JarvisRouter {
       const skill = await this.skills.execute(intent, payload);
       const localResult = await this.localBrain.reason({ ...payload, skill });
       const groqDecision = this.groqPolicy.evaluate({ input, intent, localResult });
+      const conversation = this.conversation.decide({ input, intent, context, social, localResult, groqDecision });
+      this.context.setConversationPolicy(conversation);
       stage('plan');
-      const planned = this.planner.plan({ input, social, intent, context, mode, memory, knowledge, localResult, groqDecision });
+      const planned = this.planner.plan({ input, social, intent, context, mode, memory, knowledge, localResult, groqDecision, conversation });
       planned.specialistContext = {
         intent: intent.name,
         secondaryIntents: intent.secondary,
@@ -83,13 +89,21 @@ export class JarvisRouter {
         project: context.activeProject,
         enrichedText: context.enrichedText,
         memoryReferences: memory.references,
-        groqReason: planned.groqReason || ''
+        groqReason: planned.groqReason || '',
+        strategy: conversation.strategy,
+        answerFirst: conversation.answerFirst,
+        mustDeliver: conversation.mustDeliver,
+        maxQuestions: conversation.maxQuestions,
+        allowChoices: conversation.allowChoices,
+        choiceReason: conversation.choiceReason
       };
       stage('complete');
       const responseTime = Math.round((performance.now() - started) * 10) / 10;
       const response = createJarvisResponse(planned, { requestId, intent, mode, context, trace, responseTime });
-      this.context.recordAssistant(response.message, response.source);
-      if (!response.needsGroq) this.history.complete(this.historyEntry(input.text, response));
+      if (!response.needsGroq) {
+        this.context.recordAssistant(response.message, response.source, response);
+        this.history.complete(this.historyEntry(input.text, response));
+      }
       return response;
     } catch (error) {
       if (error?.name === 'AbortError') throw error;
@@ -108,14 +122,17 @@ export class JarvisRouter {
   historyEntry(input, response) {
     return {
       id: response.requestId, user: input, response: response.message, source: response.source,
-      intent: response.intent, mode: response.mode, responseTime: response.responseTime,
+      intent: response.intent, mode: response.mode, strategy: response.strategy, responseTime: response.responseTime,
       needsGroq: response.needsGroq, representation: response.representation.type,
       actions: response.actions.map(action => action.type), error: response.error
     };
   }
 
   completeExternal(requestId, input, response, source = 'groq', metadata = {}) {
-    return this.history.complete({ id: requestId, user: input, response, source, intent: metadata.intent || 'specialist', mode: metadata.mode || 'general', responseTime: metadata.responseTime || 0, needsGroq: source === 'groq' });
+    const interaction = this.context.getInteraction();
+    const strategy = interaction.choiceOffered ? 'choose' : metadata.strategy || interaction.currentPolicy?.strategy || 'answer';
+    this.context.recordAssistant(response, source, { strategy });
+    return this.history.complete({ id: requestId, user: input, response, source, intent: metadata.intent || 'specialist', mode: metadata.mode || 'general', strategy, responseTime: metadata.responseTime || 0, needsGroq: source === 'groq' });
   }
 
   recordGroq(input, response, startedAt = performance.now(), requestId = crypto.randomUUID()) {
@@ -127,4 +144,12 @@ export class JarvisRouter {
   getSkills() { return this.skills.registry.names(); }
   inspectMemory() { return this.memory.inspect(); }
   forgetMemory(criteria) { return this.memory.forget(criteria); }
+  evaluateChoices(args) {
+    const decision = this.conversation.validateChoices(args, this.context.getInteraction());
+    if (decision.allowed) this.context.markChoiceOffered();
+    return decision;
+  }
+  registerChoice(selection) { this.context.markChoiceSelected(selection); }
+  validateResponse(content, conversation) { return this.responseGuard.validate(content, conversation); }
+  responseRepairInstruction(validation, conversation) { return this.responseGuard.repairInstruction(validation, conversation); }
 }

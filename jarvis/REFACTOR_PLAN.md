@@ -71,6 +71,7 @@ O adapter legado deixa de decidir experiência. Ele apenas executa ou consulta o
 - Escolher representação apropriada.
 - Gerar e ranquear ações estruturadas.
 - Aplicar política de risco, confirmação e execução automática.
+- Implementado em `OperationalPolicy`, com recibos reversíveis para mutações locais e confirmação obrigatória para exclusões e financeiro.
 - Remover inferência de Canvas baseada no texto da resposta.
 
 ### Etapa 4 — Adapters e capacidades
@@ -126,5 +127,7 @@ As sete etapas foram aplicadas mantendo os contratos da seção 2.
 - Contexto cognitivo enviado ao Groq somente após decisão local.
 - Histórico concluído uma única vez, depois da resposta efetiva.
 - UI compatível com página, painel e Canvas incremental.
+- Política answer-first, bloqueio de seletores consecutivos e validação de respostas externas.
+- Skill de negócios que transforma ideias vagas em uma hipótese inicial sem devolver o trabalho ao usuário.
 
 O executor legado permanece exclusivamente na fronteira `runtime.hub.execute`, conforme a dívida isolada da seção 4.

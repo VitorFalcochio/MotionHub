@@ -3,7 +3,7 @@ import { ActionPolicy } from './ActionPolicy.js';
 export class SmartActionPlanner {
   constructor(policy = new ActionPolicy()) { this.policy = policy; }
 
-  plan({ input, intent, result, representation, context }) {
+  plan({ input, intent, result, representation, context, conversation = {} }) {
     const actions = [...(result?.actions || [])];
     if (result?.action) actions.push(result.action);
 
@@ -17,21 +17,21 @@ export class SmartActionPlanner {
       });
     }
 
-    if (['architecture', 'roadmap', 'study'].includes(intent.name)) {
+    if (!conversation.mustDeliver && ['architecture', 'roadmap', 'study'].includes(intent.name)) {
       actions.push({
         id: 'detail-result', type: 'prompt', label: 'Detalhar próximos passos', icon: 'bx-list-check',
         payload: { prompt: `Detalhe os próximos passos para ${context.activeTopic || input.text}` }, priority: 35
       });
     }
 
-    if (intent.name === 'knowledge') {
+    if (!conversation.mustDeliver && intent.name === 'knowledge') {
       actions.push({
         id: 'deepen-topic', type: 'prompt', label: 'Aprofundar', icon: 'bx-layer-plus',
         payload: { prompt: `Aprofunde ${context.activeTopic || input.text} com um exemplo prático` }, priority: 25
       });
     }
 
-    if (['coding', 'debug'].includes(intent.name)) {
+    if (!conversation.mustDeliver && ['coding', 'debug'].includes(intent.name)) {
       actions.push({
         id: 'structure-solution', type: 'prompt', label: 'Estruturar solução', icon: 'bx-code-block',
         payload: { prompt: `Estruture uma solução verificável para: ${context.enrichedText || input.text}` }, priority: 30

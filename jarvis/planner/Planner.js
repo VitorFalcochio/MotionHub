@@ -7,7 +7,7 @@ export class Planner {
     this.actions = actions;
   }
 
-  plan({ input, intent, social, localResult, groqDecision, context, memory, knowledge }) {
+  plan({ input, intent, social, localResult, groqDecision, context, memory, knowledge, conversation }) {
     let result;
     if (social) {
       result = { response: social.response, source: 'social', needsGroq: false };
@@ -33,7 +33,7 @@ export class Planner {
       };
     }
     const representation = this.representation.select({ input, intent, result });
-    const actions = this.actions.plan({ input, intent, result, representation, context });
-    return { ...result, representation, actions, memoryReferences: memory.references || [] };
+    const actions = this.actions.plan({ input, intent, result, representation, context, conversation });
+    return { ...result, representation, actions, conversation, memoryReferences: memory.references || [] };
   }
 }

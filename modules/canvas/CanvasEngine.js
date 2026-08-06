@@ -104,20 +104,20 @@ export class CanvasEngine {
     group.position({ x: node.x, y: node.y });
     group.setAttrs({ width: node.width, height: node.height });
     const background = group.findOne('.node-background');
-    background?.setAttrs({ width: node.width, height: node.height, fill: node.color, stroke: node.groupId ? '#8b5cf6' : '#dfe3e8' });
+    background?.setAttrs({ width: node.width, height: node.height, fill: node.color, stroke: node.groupId ? '#8b5cf6' : '#263244' });
     group.findOne('.node-accent')?.setAttrs({ height: node.height - 20, fill: node.accent });
     group.findOne('.node-type')?.setAttrs({ text: TYPE_LABELS[node.type] || 'BLOCO', fill: node.accent, width: node.width - 36 });
-    group.findOne('.node-title')?.setAttrs({ text: node.title, width: node.width - 36 });
-    group.findOne('.node-content')?.setAttrs({ text: node.content, width: node.width - 36, height: Math.max(20, node.height - 66) });
+    group.findOne('.node-title')?.setAttrs({ text: node.title, fill: '#eef4ff', width: node.width - 36 });
+    group.findOne('.node-content')?.setAttrs({ text: node.content, fill: '#94a3b8', width: node.width - 36, height: Math.max(20, node.height - 66) });
   }
 
   createNode(node) {
     const group = new Konva.Group({ id: node.id, name: 'canvas-node', x: node.x, y: node.y, width: node.width, height: node.height, draggable: true });
-    const background = new Konva.Rect({ name: 'node-background', width: node.width, height: node.height, fill: node.color, stroke: '#dfe3e8', strokeWidth: 1, cornerRadius: 8, shadowColor: '#172033', shadowBlur: 18, shadowOpacity: 0.08, shadowOffsetY: 5 });
+    const background = new Konva.Rect({ name: 'node-background', width: node.width, height: node.height, fill: node.color, stroke: '#263244', strokeWidth: 1, cornerRadius: 8, shadowColor: '#000000', shadowBlur: 18, shadowOpacity: 0.3, shadowOffsetY: 5 });
     const accent = new Konva.Rect({ name: 'node-accent', x: 10, y: 10, width: 3, height: node.height - 20, fill: node.accent, cornerRadius: 2, listening: false });
     const type = new Konva.Text({ name: 'node-type', x: 22, y: 15, width: node.width - 36, text: TYPE_LABELS[node.type] || 'BLOCO', fill: node.accent, fontFamily: 'Inter', fontSize: 9, fontStyle: 'bold', listening: false });
-    const title = new Konva.Text({ name: 'node-title', x: 22, y: 34, width: node.width - 36, text: node.title, fill: '#16181d', fontFamily: 'Inter', fontSize: node.type === 'title' ? 18 : 14, fontStyle: 'bold', lineHeight: 1.2, listening: false });
-    const content = new Konva.Text({ name: 'node-content', x: 22, y: 61, width: node.width - 36, height: Math.max(20, node.height - 66), text: node.content, fill: '#69717f', fontFamily: 'Inter', fontSize: 10, lineHeight: 1.35, ellipsis: true, listening: false });
+    const title = new Konva.Text({ name: 'node-title', x: 22, y: 34, width: node.width - 36, text: node.title, fill: '#eef4ff', fontFamily: 'Inter', fontSize: node.type === 'title' ? 18 : 14, fontStyle: 'bold', lineHeight: 1.2, listening: false });
+    const content = new Konva.Text({ name: 'node-content', x: 22, y: 61, width: node.width - 36, height: Math.max(20, node.height - 66), text: node.content, fill: '#94a3b8', fontFamily: 'Inter', fontSize: 10, lineHeight: 1.35, ellipsis: true, listening: false });
     group.add(background, accent, type, title, content);
     group.on('dragmove', () => {
       const snap = this.bus.request('settings:get').snap;

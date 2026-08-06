@@ -7,7 +7,7 @@ export class SelectionManager {
     this.ids = [];
     this.stage = bus.request('engine:stage');
     this.layer = bus.request('engine:layer', 'ui');
-    this.transformer = new Konva.Transformer({ borderStroke: '#2563eb', borderStrokeWidth: 1.5, anchorFill: '#fff', anchorStroke: '#2563eb', anchorSize: 8, rotateAnchorOffset: 20, padding: 4, keepRatio: false });
+    this.transformer = new Konva.Transformer({ borderStroke: '#3b82f6', borderStrokeWidth: 1.5, anchorFill: '#111722', anchorStroke: '#3b82f6', anchorSize: 8, rotateAnchorOffset: 20, padding: 4, keepRatio: false });
     this.layer.add(this.transformer);
     bus.handle('selection:get', () => [...this.ids]);
     bus.handle('selection:set', ids => this.set(ids));
