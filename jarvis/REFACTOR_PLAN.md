@@ -71,6 +71,7 @@ O adapter legado deixa de decidir experiência. Ele apenas executa ou consulta o
 - Escolher representação apropriada.
 - Gerar e ranquear ações estruturadas.
 - Aplicar política de risco, confirmação e execução automática.
+- Implementado em `OperationalPolicy`, com recibos reversíveis para mutações locais e confirmação obrigatória para exclusões e financeiro.
 - Remover inferência de Canvas baseada no texto da resposta.
 
 ### Etapa 4 — Adapters e capacidades

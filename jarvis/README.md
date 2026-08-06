@@ -23,6 +23,8 @@ Toda entrada percorre, nesta ordem:
 
 `ConversationPolicy` mantém a conversa em modo answer-first. Ela limita perguntas, valida quando um seletor é legítimo e persiste a obrigação de entregar depois de uma escolha. `ResponseGuard` verifica a saída final e solicita uma única correção interna se um especialista violar essa política.
 
+`OperationalPolicy` classifica ferramentas mutáveis por domínio e risco. Alterações locais reversíveis geram um recibo com desfazer; exclusões e operações financeiras ficam pendentes até confirmação explícita. O adapter do Motion Hub captura e restaura o estado afetado, mantendo a política separada do monólito.
+
 O ponto de composição é `router/JarvisRouter.js`. A interface pública criada por `JarvisBootstrap.js` fica em `window.JarvisCognitive`. Toda saída usa o contrato versionado de `contracts/JarvisResponse.js`, mantendo aliases para integrações antigas.
 
 As ações já existentes de tarefas, agenda, projetos e finanças continuam disponíveis por uma ponte `localExecutor` fornecida por `script.js`. Ela é infraestrutura da aplicação; classificação, contexto e decisão de resposta pertencem ao novo pipeline.

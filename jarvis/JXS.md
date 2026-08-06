@@ -371,6 +371,12 @@ O comportamento padrão do Jarvis é pensar, responder ou executar antes de perg
 - Depois que o usuário seleciona uma opção, o turno seguinte deve produzir uma entrega concreta antes de qualquer nova pergunta ou seletor.
 - Uma seleção deve ser tratada como compromisso de execução, não como início de outro fluxo de descoberta.
 
+### 5.9 Recibos operacionais e reversão
+
+Toda ferramenta que altera o Motion Hub deve declarar domínio, risco e reversibilidade. Criações e atualizações locais de baixo risco podem executar diretamente, mas precisam gerar um recibo com a opção de desfazer. Exclusões e operações financeiras permanecem pendentes até confirmação explícita; uma resposta do modelo nunca equivale a essa confirmação.
+
+O desfazer restaura o snapshot do domínio afetado e executa novamente sua persistência e renderização. A confirmação deve mostrar a ação e o objeto afetado antes de executar.
+
 ---
 
 ## 6. Tipos de interação

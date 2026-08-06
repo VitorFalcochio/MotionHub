@@ -4883,6 +4883,36 @@ img { max-width: 100%; }
   outline: none;
 }
 
+.jarvis-smart-action:disabled,
+.jarvis-smart-action.completed {
+  color: var(--jarvis-dim);
+  background: var(--jarvis-surface-2);
+  border-color: var(--jarvis-border);
+  cursor: default;
+  opacity: 0.7;
+}
+
+.jarvis-operation-card {
+  width: min(100%, 520px);
+  padding: 13px !important;
+  background: var(--jarvis-surface) !important;
+  border: 1px solid rgba(245, 158, 11, 0.34) !important;
+}
+.jarvis-operation-head { display: flex; align-items: center; gap: 9px; }
+.jarvis-operation-head > i { color: #fbbf24; font-size: 18px; }
+.jarvis-operation-head > div { display: grid; gap: 2px; }
+.jarvis-operation-head strong { color: var(--jarvis-text); font-size: 11px; }
+.jarvis-operation-head span { color: #fbbf24; font-size: 8px; text-transform: uppercase; }
+.jarvis-operation-card p { margin: 11px 0 0; color: var(--jarvis-muted); font-size: 10px; }
+.jarvis-operation-actions { display: flex; justify-content: flex-end; gap: 7px; margin-top: 12px; }
+.jarvis-operation-actions button { min-height: 32px; padding: 0 11px; border-radius: 4px; font: inherit; font-size: 9px; cursor: pointer; }
+.jarvis-operation-cancel { color: var(--jarvis-muted); background: transparent; border: 1px solid var(--jarvis-border); }
+.jarvis-operation-confirm { display: inline-flex; align-items: center; gap: 5px; color: #fff; background: #2563eb; border: 1px solid #3b82f6; }
+.jarvis-operation-actions button:disabled { cursor: default; opacity: 0.55; }
+.jarvis-msg.completed .jarvis-operation-card { border-color: rgba(34, 197, 94, 0.34) !important; }
+.jarvis-msg.cancelled .jarvis-operation-card { opacity: 0.64; }
+.jarvis-msg.executing .jarvis-operation-card { border-color: rgba(59, 130, 246, 0.5) !important; }
+
 .jarvis-representation-badge {
   display: inline-block;
   margin: 0 0 8px 8px;

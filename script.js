@@ -5253,6 +5253,10 @@ let jarvisBusy     = false;
 let jarvisGreeted  = false;
 let jarvisAbortController = null;
 let jarvisProgressTimer = null;
+const jarvisUndoHistory = [];
+const jarvisPendingOperations = new Map();
+let jarvisTurnOperations = [];
+let jarvisTurnPending = [];
 
 const JARVIS_TOOLS = [
   {
@@ -5715,6 +5719,34 @@ const JARVIS_TOOLS = [
   {
     type: 'function',
     function: {
+      name: 'complete_task',
+      description: 'Marca uma tarefa como concluída pelo ID.',
+      parameters: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'capture_inbox',
+      description: 'Guarda um item na caixa de entrada para processamento posterior.',
+      parameters: {
+        type: 'object',
+        properties: { text: { type: 'string' }, project: { type: 'string' } },
+        required: ['text']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'plan_day',
+      description: 'Organiza automaticamente até três prioridades para o dia atual.',
+      parameters: { type: 'object', properties: {}, required: [] }
+    }
+  },
+  {
+    type: 'function',
+    function: {
       name: 'show_choices',
       description: 'Mostra um seletor somente quando o usuario pediu alternativas e existem 2 a 4 decisoes materialmente diferentes. Nunca use para adiar uma resposta, iniciar brainstorming, perguntar como comecar ou oferecer etapas vagas. Depois da escolha, entregue um resultado antes de qualquer nova selecao.',
       parameters: {
@@ -5852,7 +5884,83 @@ function jarvisOpenCodeAssets(args = {}) {
   return { success: true, target: 'assets.html', ...request };
 }
 
-async function jarvisRunTool(name, args, executionContext = {}) {
+function jarvisCloneOperationData(value) {
+  try { return structuredClone(value); }
+  catch { return JSON.parse(JSON.stringify(value)); }
+}
+
+function jarvisOperationPolicy(name) {
+  const classified = window.JarvisCognitive?.classifyOperation?.(name);
+  if (classified) return classified;
+  const looksMutable = /^(create|update|delete|add|check|complete|capture|plan)_/.test(name);
+  return { name, mutation: looksMutable, domain: '', label: name.replace(/_/g, ' '), risk: looksMutable ? 'high' : 'none', reversible: false, requiresConfirmation: looksMutable };
+}
+
+function jarvisCaptureOperation(policy) {
+  return policy.domain && Array.isArray(S[policy.domain])
+    ? { [policy.domain]: jarvisCloneOperationData(S[policy.domain]) }
+    : {};
+}
+
+function jarvisRefreshOperationDomain(domain) {
+  if (domain === 'tasks') { saveTasks(); renderTasks(); renderAgenda(); renderDashboard(); }
+  else if (domain === 'projects') { saveProjects(); renderProjects(S.projectFilter); renderDashboard(); }
+  else if (domain === 'habits') { saveHabits(); renderHabits(); renderDashboard(); }
+  else if (domain === 'goals') { saveGoals(); renderGoals(); renderDashboard(); }
+  else if (domain === 'ideas') { saveIdeas(); renderIdeas(); }
+  else if (domain === 'contacts') { saveContacts(); renderCRM(); }
+  else if (domain === 'docs') { saveDocs(); renderPrompts(); }
+  else if (domain === 'notes') { saveNotes(); if (S.section === 'notes') renderNotesTree(); }
+  else if (domain === 'inbox') { saveInbox(); renderDashboard(); }
+  else if (domain === 'dailyPlans') { saveDailyPlans(); renderDashboard(); }
+  else if (domain === 'transactions') { saveTransactions(); renderFinancial(); renderDashboard(); }
+}
+
+function jarvisOperationSubject(result = {}, args = {}) {
+  const entity = result.task || result.event || result.project || result.goal || result.idea || result.contact || result.doc || result.note || result.transaction;
+  return entity?.title || entity?.name || entity?.objective || entity?.desc || args.title || args.name || args.objective || args.desc || args.text || '';
+}
+
+async function jarvisRunTool(name, args = {}, executionContext = {}) {
+  const policy = jarvisOperationPolicy(name);
+  if (policy.mutation && policy.requiresConfirmation && !executionContext.confirmed) {
+    const signature = `${name}:${JSON.stringify(args)}`;
+    const existing = [...jarvisPendingOperations.values()].find(item => item.signature === signature);
+    if (existing) {
+      if (!jarvisTurnPending.some(item => item.id === existing.id)) jarvisTurnPending.push(existing);
+      return { success: false, status: 'pending_confirmation', pending_confirmation: true, operation_id: existing.id, operation: policy.label, instruction: 'A ação ainda não foi executada. Informe que aguarda confirmação do usuário e não afirme conclusão.' };
+    }
+    const pending = { id: `pending-${crypto.randomUUID()}`, signature, name, args: jarvisCloneOperationData(args), policy, createdAt: new Date().toISOString() };
+    jarvisPendingOperations.set(pending.id, pending);
+    jarvisTurnPending.push(pending);
+    return { success: false, status: 'pending_confirmation', pending_confirmation: true, operation_id: pending.id, operation: policy.label, instruction: 'A ação ainda não foi executada. Informe que aguarda confirmação do usuário e não afirme conclusão.' };
+  }
+
+  const snapshot = policy.mutation ? jarvisCaptureOperation(policy) : null;
+  const result = await jarvisExecuteTool(name, args, executionContext);
+  const succeeded = !result?.error && result?.success !== false && !result?.pending_confirmation;
+  if (policy.mutation && succeeded) {
+    const operation = {
+      id: `operation-${crypto.randomUUID()}`,
+      name,
+      label: policy.label,
+      domain: policy.domain,
+      risk: policy.risk,
+      reversible: policy.reversible,
+      snapshot,
+      subject: jarvisOperationSubject(result, args),
+      createdAt: new Date().toISOString(),
+      undone: false
+    };
+    jarvisUndoHistory.unshift(operation);
+    jarvisUndoHistory.splice(20);
+    jarvisTurnOperations.push(operation);
+    return { ...result, operation: { id: operation.id, label: operation.label, subject: operation.subject, risk: operation.risk, undo_available: operation.reversible } };
+  }
+  return result;
+}
+
+async function jarvisExecuteTool(name, args, executionContext = {}) {
   const today = localDateString(new Date());
 
   switch (name) {
@@ -5910,6 +6018,13 @@ async function jarvisRunTool(name, args, executionContext = {}) {
       renderTasks();
       renderDashboard();
       return { success: true, task: S.tasks[i] };
+    }
+
+    case 'complete_task': {
+      const task = S.tasks.find(item => item.id === args.id && item.kind !== 'event');
+      if (!task) return { success: false, error: 'Tarefa não encontrada' };
+      if (task.col !== 'done') toggleTaskDone(task.id);
+      return { success: true, task: S.tasks.find(item => item.id === args.id) || task };
     }
 
     case 'delete_task': {
@@ -5984,6 +6099,17 @@ async function jarvisRunTool(name, args, executionContext = {}) {
       renderDashboard();
       return { success: true, project: p };
     }
+
+    case 'capture_inbox': {
+      const item = createInboxItem({ text: args.text, project: args.project || '', suggestedKind: 'inbox', source: 'jarvis', status: 'new' });
+      S.inbox.unshift(item);
+      saveInbox();
+      renderDashboard();
+      return { success: true, item };
+    }
+
+    case 'plan_day':
+      return jarvisAutoPlanDay();
 
     case 'list_habits':
       return S.habits.map(h => ({
@@ -6285,6 +6411,9 @@ Experiencia Jarvis:
 
 Uso de ferramentas:
 - Use ferramentas quando o usuario pedir para criar, mover, atualizar, excluir, listar ou consultar dados do Motion Hub.
+- Ferramentas podem retornar pending_confirmation. Nesse estado, a acao ainda nao aconteceu: diga apenas que aguarda confirmacao e nunca afirme conclusao.
+- Criacoes e atualizacoes locais reversiveis podem ser executadas diretamente; a interface oferece desfazer automaticamente.
+- Exclusoes e alteracoes financeiras devem passar pela confirmacao gerada pela ferramenta.
 - Gerencie compromissos que se repetem com as ferramentas de eventos recorrentes. Interprete dias da semana como 0=domingo, 1=segunda, ... 6=sabado e use a data inicial mais proxima coerente com o pedido.
 - No financeiro, diferencie valores realizados de projeções. Use recurring=true para receitas ou despesas que se repetem e get_financial_forecast para analisar os próximos meses. Você pode criar, listar, atualizar e excluir lançamentos.
 - Use web_search quando a pergunta depender de informacao atual, mercado, concorrentes, noticias, precos, tendencias, ferramentas recentes, leis, dados externos ou validacao de uma ideia no mundo real.
@@ -6429,13 +6558,18 @@ function jarvisAutoPlanDay() {
     const rank = task => task.due && task.due < today ? 0 : task.col === 'today' || task.due === today ? 1 : task.priority === 'Alta' ? 2 : 3;
     return rank(a) - rank(b) || (a.due || '9999-12-31').localeCompare(b.due || '9999-12-31');
   }).slice(0, 3);
-  if (!candidates.length) return 'Você não tem tarefas pendentes para montar o plano de hoje.';
+  if (!candidates.length) return { success: false, error: 'Você não tem tarefas pendentes para montar o plano de hoje.' };
   const intention = `Avançar ${candidates[0].project || 'nas prioridades mais importantes'}`;
   const plan = { date: today, intention, taskIds: candidates.map(task => task.id), updatedAt: new Date().toISOString() };
   const index = S.dailyPlans.findIndex(item => item.date === today);
   if (index >= 0) S.dailyPlans[index] = plan; else S.dailyPlans.unshift(plan);
   saveDailyPlans(); renderDashboard();
-  return `Planejamento criado com estas prioridades:\n${candidates.map((task, index) => `${index + 1}. **${task.title}**${task.project ? ` · ${task.project}` : ''}`).join('\n')}\n\nVocê pode ajustá-lo no Dashboard.`;
+  return {
+    success: true,
+    plan,
+    tasks: candidates.map(task => ({ id: task.id, title: task.title, project: task.project || '' })),
+    message: `Planejamento criado com estas prioridades:\n${candidates.map((task, index) => `${index + 1}. **${task.title}**${task.project ? ` · ${task.project}` : ''}`).join('\n')}\n\nVocê pode ajustá-lo no Dashboard.`
+  };
 }
 
 async function jarvisTryLocal(text, { fallback = false } = {}) {
@@ -6460,13 +6594,13 @@ async function jarvisTryLocal(text, { fallback = false } = {}) {
   if (starts(/^(capture|capturar|anote|anotar|guarde|guardar)\b/) && /(caixa|entrada|inbox|lembrete|capture|anote)/.test(normalized)) {
     const content = String(text).replace(/^(capture|capturar|anote|anotar|guarde|guardar)(\s+(na|no)\s+(caixa de entrada|inbox))?\s*[:,-]?\s*/i, '').trim();
     if (!content) return { handled: true, response: 'O que você quer que eu guarde na caixa de entrada?' };
-    S.inbox.unshift(createInboxItem({ text: content, project: jarvisLocalProject(text), suggestedKind: 'inbox', source: 'jarvis', status: 'new' }));
-    saveInbox(); renderDashboard();
-    return { handled: true, response: `Guardei **${captureTitle(content)}** na caixa de entrada.` };
+    const result = await jarvisRunTool('capture_inbox', { text: content, project: jarvisLocalProject(text) });
+    return { handled: true, response: result.success ? `Guardei **${captureTitle(content)}** na caixa de entrada.` : result.error };
   }
 
   if (/planej(e|ar|a)|monte.*(meu )?dia|defina.*prioridades/.test(normalized) && /dia|hoje|prioridades/.test(normalized)) {
-    return { handled: true, response: jarvisAutoPlanDay() };
+    const result = await jarvisRunTool('plan_day', {});
+    return { handled: true, response: result.message || result.error };
   }
 
   if (starts(/^(crie|criar|adicione|adicionar|registre|registrar)\b/) && /\btarefa\b/.test(normalized)) {
@@ -6483,8 +6617,8 @@ async function jarvisTryLocal(text, { fallback = false } = {}) {
     const found = jarvisFindTask(text);
     if (!found.matches.length) return { handled: true, response: 'Não encontrei uma tarefa pendente com esse nome.' };
     if (found.matches.length > 1) return { handled: true, response: `Encontrei mais de uma possibilidade:\n${found.matches.slice(0,5).map(task => `- ${task.title}`).join('\n')}\n\nDiga um trecho mais específico.` };
-    toggleTaskDone(found.matches[0].id);
-    return { handled: true, response: `Marquei **${found.matches[0].title}** como concluída.` };
+    const result = await jarvisRunTool('complete_task', { id: found.matches[0].id });
+    return { handled: true, response: result.success ? `Marquei **${found.matches[0].title}** como concluída.` : result.error };
   }
 
   const sectionMap = { dashboard: 'dashboard', inicio: 'dashboard', projetos: 'projects', tarefas: 'tasks', habitos: 'habits', agenda: 'agenda', estudos: 'studies', materias: 'studies', faculdade: 'studies', ideias: 'ideas', metas: 'goals', crm: 'crm', financeiro: 'financial', financas: 'financial', notas: 'notes', jarvis: 'jarvis', configuracoes: 'settings', automacoes: 'settings' };
@@ -6498,8 +6632,10 @@ async function jarvisTryLocal(text, { fallback = false } = {}) {
     if (!value) return { handled: true, response: 'Qual é o valor do lançamento?' };
     const type = /receita/.test(normalized) ? 'Receita' : 'Despesa';
     const desc = jarvisLocalTransactionDescription(text);
-    await jarvisRunTool('add_transaction', { type, desc, value, project: jarvisLocalProject(text), date: jarvisLocalDate(text) || localDateString(new Date()) });
-    return { handled: true, response: `${type} registrada: **${desc}**, no valor de **${fmtCurrency(value)}**.` };
+    const result = await jarvisRunTool('add_transaction', { type, desc, value, project: jarvisLocalProject(text), date: jarvisLocalDate(text) || localDateString(new Date()) });
+    return { handled: true, response: result.pending_confirmation
+      ? `Preparei o lançamento de **${fmtCurrency(value)}** para **${desc}**. Confirme abaixo para registrar no financeiro.`
+      : `${type} registrada: **${desc}**, no valor de **${fmtCurrency(value)}**.` };
   }
 
   if (/quanto (eu )?(gastei|recebi)|resumo financeiro|meu saldo|como estao minhas financas/.test(normalized)) {
@@ -6654,6 +6790,8 @@ async function jarvisSend(source = 'panel') {
   const text  = input?.value?.trim();
   if (!text) return;
 
+  jarvisTurnOperations = [];
+  jarvisTurnPending = [];
   input.value = '';
   input.style.height = 'auto';
   jarvisMessages.push({ role: 'user', content: text });
@@ -6688,11 +6826,13 @@ async function jarvisSend(source = 'panel') {
     }
 
     if (!cognitive.needsGroq) {
+      cognitive = jarvisDecorateOperationActions(cognitive);
       const brain = cognitive.source || 'local';
       const reply = { role: 'assistant', content: cognitive.response, brain, experience: cognitive };
       jarvisMessages.push(reply);
       jarvisSetBrainStatus('local');
       jarvisAppendMsg('assistant', reply.content, brain, cognitive);
+      jarvisRenderTurnPending();
       jarvisExecuteAutoActions(cognitive);
       return;
     }
@@ -6703,6 +6843,7 @@ async function jarvisSend(source = 'panel') {
       jarvisMessages.push(reply);
       jarvisSetBrainStatus('fallback');
       jarvisAppendMsg('assistant', reply.content, reply.brain, cognitive);
+      jarvisRenderTurnPending();
       window.JarvisCognitive?.completeExternal(cognitive.requestId, text, reply.content, 'fallback', {
         intent: cognitive.intent, mode: cognitive.mode, responseTime: performance.now() - cognitiveStartedAt
       });
@@ -6758,23 +6899,25 @@ async function jarvisSend(source = 'panel') {
 
     const reply = choice.message;
     reply.brain = 'groq';
-    reply.experience = { ...cognitive, source: 'groq', message: reply.content, response: reply.content, needsGroq: false, status: 'completed' };
+    reply.experience = jarvisDecorateOperationActions({ ...cognitive, source: 'groq', message: reply.content, response: reply.content, needsGroq: false, status: 'completed' });
     jarvisMessages.push(reply);
     window.JarvisCognitive?.completeExternal(cognitive.requestId, text, reply.content || '', 'groq', {
       intent: cognitive.intent, mode: cognitive.mode, responseTime: performance.now() - cognitiveStartedAt
     });
     jarvisSetBrainStatus('groq');
     jarvisAppendMsg('assistant', reply.content || '…', 'groq', reply.experience);
+    jarvisRenderTurnPending();
   } catch (err) {
     const cancelled = err?.name === 'AbortError';
     const fallback = cancelled
       ? { response: 'Interrompi o processamento. Ações que já haviam sido confirmadas continuam aplicadas.' }
       : cognitive?.response ? { response: cognitive.response } : await jarvisTryLocal(text, { fallback: true });
-    const experience = cognitive || { source: 'fallback', actions: [], representation: { type: 'text' } };
+    const experience = jarvisDecorateOperationActions(cognitive || { source: 'fallback', actions: [], representation: { type: 'text' } });
     const reply = { role: 'assistant', content: fallback.response, brain: 'fallback', experience };
     jarvisMessages.push(reply);
     jarvisSetBrainStatus('fallback');
     jarvisAppendMsg('assistant', reply.content, 'fallback', experience);
+    jarvisRenderTurnPending();
     window.JarvisCognitive?.completeExternal(experience.requestId, text, reply.content, 'fallback', {
       intent: experience.intent, mode: experience.mode, responseTime: performance.now() - cognitiveStartedAt
     });
@@ -6799,6 +6942,111 @@ function jarvisActionMarkup(actions = []) {
     <button class="jarvis-smart-action" type="button" data-action-type="${jarvisAttr(action.type)}" data-action-payload="${jarvisAttr(JSON.stringify(action.payload || {}))}">
       <i class='bx ${jarvisAttr(action.icon || 'bx-right-arrow-alt')}'></i>${jarvisEsc(action.label)}
     </button>`).join('')}</div>`;
+}
+
+function jarvisDecorateOperationActions(experience = {}) {
+  const actions = [...(experience.actions || [])];
+  const latest = jarvisTurnOperations.find(operation => operation.reversible && !operation.undone);
+  if (latest) {
+    actions.unshift({
+      id: `undo-${latest.id}`,
+      type: 'undo-operation',
+      label: 'Desfazer',
+      icon: 'bx-undo',
+      payload: { operationId: latest.id },
+      priority: 100,
+      risk: 'low',
+      requiresConfirmation: false
+    });
+  }
+  return { ...experience, actions: actions.slice(0, 3) };
+}
+
+function jarvisPendingDescription(pending) {
+  const args = pending.args || {};
+  if (pending.name.includes('transaction')) {
+    const value = Number(args.value);
+    return `${args.type || 'Lançamento'}${args.desc ? ` · ${args.desc}` : ''}${value ? ` · ${fmtCurrency(value)}` : ''}`;
+  }
+  return args.title || args.name || args.objective || args.desc || args.id || pending.policy.label;
+}
+
+function jarvisAppendOperationConfirmation(pending) {
+  ['jarvisMsgList', 'jarvisPageMsgList'].forEach(listId => {
+    const list = document.getElementById(listId);
+    if (!list || list.querySelector(`[data-pending-operation="${pending.id}"]`)) return;
+    const div = document.createElement('div');
+    div.className = 'jarvis-msg jarvis-msg-assistant';
+    div.dataset.pendingOperation = pending.id;
+    div.innerHTML = `
+      <div class="jarvis-avatar-sm"><span>&gt;_</span></div>
+      <div class="jarvis-bubble jarvis-operation-card">
+        <div class="jarvis-operation-head"><i class='bx bx-shield-quarter'></i><div><strong>Confirmação necessária</strong><span>${jarvisEsc(pending.policy.label)}</span></div></div>
+        <p>${jarvisEsc(jarvisPendingDescription(pending))}</p>
+        <div class="jarvis-operation-actions">
+          <button type="button" class="jarvis-operation-cancel" data-operation-decision="cancel" data-operation-id="${jarvisAttr(pending.id)}">Cancelar</button>
+          <button type="button" class="jarvis-operation-confirm" data-operation-decision="confirm" data-operation-id="${jarvisAttr(pending.id)}"><i class='bx bx-check'></i> Confirmar</button>
+        </div>
+      </div>`;
+    list.appendChild(div);
+    list.scrollTop = list.scrollHeight;
+  });
+}
+
+function jarvisRenderTurnPending() {
+  jarvisTurnPending.forEach(jarvisAppendOperationConfirmation);
+}
+
+function jarvisAppendOperationalReply(content, operation = null) {
+  const experience = operation ? {
+    source: 'system',
+    representation: { type: 'text' },
+    actions: [{ type: 'undo-operation', label: 'Desfazer', icon: 'bx-undo', payload: { operationId: operation.id }, priority: 100 }]
+  } : { source: 'system', representation: { type: 'text' }, actions: [] };
+  const reply = { role: 'assistant', content, brain: 'system', experience };
+  jarvisMessages.push(reply);
+  jarvisAppendMsg('assistant', content, 'system', experience);
+}
+
+async function jarvisUndoOperation(operationId) {
+  const operation = jarvisUndoHistory.find(item => item.id === operationId);
+  if (!operation || operation.undone) return;
+  Object.entries(operation.snapshot || {}).forEach(([domain, value]) => {
+    S[domain] = jarvisCloneOperationData(value);
+    jarvisRefreshOperationDomain(domain);
+  });
+  operation.undone = true;
+  document.querySelectorAll(`[data-action-type="undo-operation"]`).forEach(button => {
+    let payload = {};
+    try { payload = JSON.parse(button.dataset.actionPayload || '{}'); } catch {}
+    if (payload.operationId === operationId) { button.disabled = true; button.classList.add('completed'); }
+  });
+  jarvisAppendOperationalReply(`Desfiz **${operation.label.toLowerCase()}**${operation.subject ? `: ${operation.subject}` : ''}.`);
+}
+
+async function jarvisResolvePendingOperation(operationId, decision) {
+  const pending = jarvisPendingOperations.get(operationId);
+  if (!pending) return;
+  const cards = document.querySelectorAll(`[data-pending-operation="${operationId}"]`);
+  cards.forEach(card => card.querySelectorAll('button').forEach(button => { button.disabled = true; }));
+  if (decision === 'cancel') {
+    jarvisPendingOperations.delete(operationId);
+    cards.forEach(card => card.classList.add('cancelled'));
+    jarvisAppendOperationalReply(`Cancelei **${pending.policy.label.toLowerCase()}**. Nenhum dado foi alterado.`);
+    return;
+  }
+  cards.forEach(card => card.classList.add('executing'));
+  try {
+    const result = await jarvisRunTool(pending.name, pending.args, { confirmed: true });
+    if (result?.success === false || result?.error) throw new Error(result.error || 'A operação não foi concluída.');
+    jarvisPendingOperations.delete(operationId);
+    cards.forEach(card => { card.classList.remove('executing'); card.classList.add('completed'); });
+    const operation = jarvisUndoHistory.find(item => item.id === result.operation?.id);
+    jarvisAppendOperationalReply(`Concluí **${pending.policy.label.toLowerCase()}**${result.operation?.subject ? `: ${result.operation.subject}` : ''}.`, operation);
+  } catch (error) {
+    cards.forEach(card => { card.classList.remove('executing'); card.querySelectorAll('button').forEach(button => { button.disabled = false; }); });
+    jarvisAppendOperationalReply(`Não consegui concluir a operação: ${error.message}`);
+  }
 }
 
 function jarvisAppendMsg(role, content, brain = '', experience = null) {
@@ -6865,6 +7113,7 @@ function jarvisRenderHistory() {
   jarvisMessages
     .filter(msg => msg.role === 'user' || msg.role === 'assistant')
     .forEach(msg => jarvisAppendMsg(msg.role, msg.content || '', msg.brain || '', msg.experience || null));
+  jarvisPendingOperations.forEach(jarvisAppendOperationConfirmation);
 }
 
 function jarvisEsc(s) {
@@ -6920,6 +7169,7 @@ function jarvisSetProgress(label = '') {
 function jarvisRunSmartAction(action) {
   if (!action || action.requiresConfirmation) return;
   const payload = action.payload || {};
+  if (action.type === 'undo-operation') return jarvisUndoOperation(payload.operationId);
   if (action.type === 'canvas') return jarvisOpenCanvas(payload.prompt || '');
   if (action.type === 'navigate' && payload.section) return navigateTo(payload.section);
   if (action.type === 'prompt') {
@@ -6999,6 +7249,9 @@ function initJarvis() {
   });
   document.getElementById('jarvisClear')?.addEventListener('click', () => {
     jarvisMessages = [];
+    jarvisPendingOperations.clear();
+    jarvisTurnOperations = [];
+    jarvisTurnPending = [];
     window.JarvisCognitive?.resetConversation();
     jarvisGreeted  = false;
     jarvisRenderHistory();
@@ -7016,6 +7269,9 @@ function initJarvis() {
   });
   document.getElementById('jarvisPageClear')?.addEventListener('click', () => {
     jarvisMessages = [];
+    jarvisPendingOperations.clear();
+    jarvisTurnOperations = [];
+    jarvisTurnPending = [];
     window.JarvisCognitive?.resetConversation();
     jarvisGreeted = false;
     jarvisRenderHistory();
@@ -7030,6 +7286,11 @@ function initJarvis() {
       input.value = btn.dataset.prompt || '';
       input.focus();
     });
+  });
+  document.addEventListener('click', e => {
+    const decisionButton = e.target.closest('[data-operation-decision]');
+    if (!decisionButton) return;
+    jarvisResolvePendingOperation(decisionButton.dataset.operationId, decisionButton.dataset.operationDecision);
   });
   document.addEventListener('click', e => {
     const actionButton = e.target.closest('.jarvis-smart-action');
