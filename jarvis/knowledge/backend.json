@@ -1,0 +1,7 @@
+{
+  "id": "backend",
+  "title": "Backend",
+  "keywords": ["backend", "servidor", "node", "servico", "microsservico"],
+  "summary": "Backend concentra regras de negócio, segurança, persistência e integrações. Comece por limites de domínio claros e contratos observáveis.",
+  "practices": ["Valide entradas na borda", "Separe domínio de infraestrutura", "Use logs estruturados e métricas", "Projete idempotência para operações críticas"]
+}

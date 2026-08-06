@@ -1,0 +1,7 @@
+{
+  "id": "react",
+  "title": "React",
+  "keywords": ["react", "jsx", "hook", "componente", "estado"],
+  "summary": "React descreve interfaces como funções do estado. Componentes devem manter responsabilidades claras e efeitos devem sincronizar apenas sistemas externos.",
+  "practices": ["Derive estado quando possível", "Mantenha efeitos pequenos", "Use chaves estáveis em listas", "Evite abstrações antes de repetição real"]
+}

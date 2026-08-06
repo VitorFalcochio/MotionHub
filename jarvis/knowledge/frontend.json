@@ -1,0 +1,7 @@
+{
+  "id": "frontend",
+  "title": "Frontend",
+  "keywords": ["frontend", "interface", "ui", "ux", "css", "acessibilidade"],
+  "summary": "Frontend traduz estado e ações em uma interface previsível. A arquitetura deve favorecer componentes coesos, acessibilidade e estados explícitos.",
+  "practices": ["Modele loading, vazio e erro", "Use HTML semântico", "Mantenha estado perto de quem o consome", "Teste fluxos críticos em mobile e desktop"]
+}

@@ -1,0 +1,7 @@
+{
+  "id": "redis",
+  "title": "Redis",
+  "keywords": ["redis", "cache", "fila", "pub sub", "rate limit"],
+  "summary": "Redis é um armazenamento em memória útil para cache, filas, locks e limites de requisição. Persistência e consistência dependem da configuração.",
+  "practices": ["Defina TTL para cache", "Evite chaves sem limite", "Planeje invalidação", "Monitore memória e evictions"]
+}

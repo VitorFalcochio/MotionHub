@@ -1,0 +1,7 @@
+{
+  "id": "docker",
+  "title": "Docker",
+  "keywords": ["docker", "container", "dockerfile", "compose", "imagem"],
+  "summary": "Docker empacota aplicação e dependências em imagens reproduzíveis. Containers são processos isolados derivados dessas imagens.",
+  "practices": ["Use imagens base pequenas e fixadas", "Execute como usuário sem privilégios", "Separe build e runtime com multi-stage", "Não grave segredos na imagem"]
+}
