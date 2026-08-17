@@ -22,6 +22,12 @@ const S = {
   subjects: [],
   assessments: [],
   studySessions: [],
+  people: [],
+  agents: [],
+  activities: [],
+  agentRuns: [],
+  agentApprovals: [],
+  teamMeta: { catalogVersion: 0 },
   profiles: {},
   settingsTab: 'profile',
   activeInsights: [],
@@ -36,13 +42,15 @@ const S = {
   studyTermId: null,
   studyProgramFilter: 'all',
   studySubjectFilter: 'all',
-  studyAssessmentFilter: 'all'
+  studyAssessmentFilter: 'all',
+  teamTab: 'people'
 };
 let _krCounter = 0;
 let _selectedMood = 3;
 let projectRhythmInterval = null;
 let projectRhythmAlertOpen = false;
 let insightInterval = null;
+let agentRuntime = null;
 
 /* ===== LOCAL STORAGE ===== */
 const STORAGE_KEY = 'motion_hub_data_v1';
@@ -51,7 +59,7 @@ const INSIGHT_STATE_KEY = 'motion_hub_insight_state_v1';
 const PROJECT_RHYTHM_KEY = 'motion_project_rhythm_v1';
 const ACCESS_PASSWORD = '@Vitor0911071234';
 const ACCESS_SESSION_KEY = 'motion_hub_access_ok_v1';
-const DATA_FIELDS = ['projects', 'tasks', 'ideas', 'contacts', 'transactions', 'docs', 'habits', 'goals', 'reviews', 'notes', 'inbox', 'dailyPlans', 'studyPrograms', 'studyTerms', 'subjects', 'assessments', 'studySessions'];
+const DATA_FIELDS = ['projects', 'tasks', 'ideas', 'contacts', 'transactions', 'docs', 'habits', 'goals', 'reviews', 'notes', 'inbox', 'dailyPlans', 'studyPrograms', 'studyTerms', 'subjects', 'assessments', 'studySessions', 'people', 'agents', 'activities', 'agentRuns', 'agentApprovals'];
 const BACKUP_FORMAT = 'motion-hub-backup';
 const BACKUP_VERSION = 2;
 const BACKUP_SAFETY_KEY = 'motion_hub_safety_backup_v1';
@@ -61,6 +69,7 @@ const BACKUP_STORES = [
   { key: SETTINGS_KEY, label: 'Preferências', icon: 'bx-cog' },
   { key: INSIGHT_STATE_KEY, label: 'Jarvis proativo', icon: 'bx-bot' },
   { key: PROJECT_RHYTHM_KEY, label: 'Ritmo dos projetos', icon: 'bx-timer' },
+  { key: 'motion_agent_conversations_v1', label: 'Conversas com agentes', icon: 'bx-conversation' },
   { key: 'growth_hub_data_v2', label: 'Growth Hub', icon: 'bx-line-chart' },
   { key: 'motion_code_assets_library_v1', label: 'Code Assets', icon: 'bx-code-curly' }
 ];
@@ -190,6 +199,14 @@ function applySettings() {
     S.profiles.vitor.display_name = currentUserName;
     S.profiles.vitor.avatar_color = currentUserColor;
   }
+  const currentPerson = S.people?.find?.(person => person.isCurrentUser || person.id === currentUserId);
+  if (currentPerson) {
+    currentPerson.name = currentUserName;
+    currentPerson.role = appSettings.profile.role;
+    currentPerson.color = currentUserColor;
+    refreshProfiles();
+    savePeople();
+  }
   applyDashboardPreferences();
 }
 
@@ -253,26 +270,23 @@ async function loadAll() {
   const data = getStoredData();
   if (data) {
     DATA_FIELDS.forEach(field => { S[field] = data[field] || []; });
+    S.teamMeta = data.teamMeta && typeof data.teamMeta === 'object' ? data.teamMeta : { catalogVersion: 0 };
   }
   normalizeInboxState();
   return data;
 }
 
 async function loadProfiles() {
-  S.profiles = {
-    vitor: {
-      id: 'vitor',
-      display_name: currentUserName,
-      avatar_color: currentUserColor
-    }
-  };
+  S.profiles = {};
 }
 
 function ownerBadge(item) {
-  if (!item.owner_name) return '';
-  const profile = item.owner_id ? S.profiles[item.owner_id] : null;
-  const color = profile?.avatar_color || currentUserColor;
-  return `<span class="owner-badge" style="background:${color}22;color:${color};border:1px solid ${color}44"><i class='bx bx-user'></i>${escHtml(item.owner_name)}</span>`;
+  const actor = getActor(item.assignee_id || item.owner_id, item.assignee_type);
+  const name = actor?.name || item.assignee_name || item.owner_name;
+  if (!name) return '';
+  const isAgent = (actor?.type || item.assignee_type) === 'agent';
+  const color = actor?.color || S.profiles[item.owner_id]?.avatar_color || currentUserColor;
+  return `<span class="owner-badge${isAgent ? ' owner-agent' : ''}" style="background:${color}22;color:${color};border:1px solid ${color}44"><i class='bx ${isAgent ? 'bx-bot' : 'bx-user'}'></i>${escHtml(name)}</span>`;
 }
 function saveProjects()     { syncData({ projects:     S.projects }); }
 function saveTasks()        { syncData({ tasks:        S.tasks }); }
@@ -291,6 +305,12 @@ function saveStudyTerms()   { syncData({ studyTerms:   S.studyTerms }); }
 function saveSubjects()     { syncData({ subjects:     S.subjects }); }
 function saveAssessments()  { syncData({ assessments:  S.assessments }); }
 function saveStudySessions(){ syncData({ studySessions:S.studySessions }); }
+function savePeople()       { syncData({ people:       S.people }); }
+function saveAgents()       { syncData({ agents:       S.agents }); }
+function saveActivities()   { syncData({ activities:   S.activities }); }
+function saveAgentRuns()    { syncData({ agentRuns:    S.agentRuns }); }
+function saveAgentApprovals(){ syncData({ agentApprovals:S.agentApprovals }); }
+function saveTeamMeta()     { syncData({ teamMeta:     S.teamMeta }); }
 
 /* ===== BACKUP & RESTORE ===== */
 function backupSafeClone(value) {
@@ -925,6 +945,408 @@ function seedNotes(existingData) {
   syncData({ seeded_notes: true });
 }
 
+/* ===== TEAM ===== */
+const TEAM_COLORS = ['#2563EB','#6366F1','#8B5CF6','#16A34A','#EA580C','#DB2777','#0891B2','#F5A623'];
+const AGENT_TOOLS = [
+  ['tasks', 'Tarefas'], ['projects', 'Projetos'], ['notes', 'Notas'],
+  ['web', 'Pesquisa web'], ['crm', 'CRM'], ['financial', 'Financeiro'],
+  ['goals', 'Metas & OKRs']
+];
+const AGENT_CADENCES = { on_demand: 'Sob demanda', continuous: 'Contínuo', daily: 'Diário', twice_weekly: '2x por semana', weekly: 'Semanal' };
+const DEFAULT_AGENT_CATALOG = [
+  {
+    id: 'agent-jarvis', name: 'Jarvis', role: 'Chefe de gabinete digital', color: '#8B5CF6', status: 'active', autonomy: 'supervised', cadence: 'continuous',
+    mission: 'Transformar suas prioridades em planos claros, coordenar os demais agentes e trazer exceções que realmente exigem sua decisão.',
+    tools: ['tasks','projects','notes','goals'], stopCriteria: 'Parar quando a prioridade estiver concluída, bloqueada ou exigir uma decisão do proprietário.'
+  },
+  {
+    id: 'agent-atlas', name: 'Atlas', role: 'Gestor de projetos', color: '#2563EB', status: 'paused', autonomy: 'autonomous', cadence: 'daily',
+    mission: 'Manter Motion Hub, Cotai, Simplifique e VidaPet em movimento, convertendo objetivos em próximas ações e sinalizando atrasos, bloqueios e projetos sem ritmo.',
+    tools: ['tasks','projects','notes','goals'], stopCriteria: 'Parar ao atualizar o plano e encontrar uma próxima ação clara para cada projeto ativo.'
+  },
+  {
+    id: 'agent-scout', name: 'Scout', role: 'Pesquisa e inteligência de mercado', color: '#0891B2', status: 'paused', autonomy: 'autonomous', cadence: 'twice_weekly',
+    mission: 'Pesquisar concorrentes, tendências e oportunidades relevantes para os seus negócios, registrando evidências, fontes e implicações práticas.',
+    tools: ['web','notes','projects'], stopCriteria: 'Parar quando houver evidência suficiente para uma decisão ou quando as fontes forem inconclusivas.'
+  },
+  {
+    id: 'agent-closer', name: 'Closer', role: 'Operações comerciais', color: '#16A34A', status: 'paused', autonomy: 'approval', cadence: 'daily',
+    mission: 'Organizar o pipeline comercial, priorizar follow-ups e preparar abordagens para Cotai e Simplifique sem enviar comunicações externas sem aprovação.',
+    tools: ['crm','tasks','notes'], stopCriteria: 'Parar quando cada lead ativo tiver próximo passo, responsável e prazo definidos.'
+  },
+  {
+    id: 'agent-ledger', name: 'Ledger', role: 'Controle financeiro', color: '#EA580C', status: 'paused', autonomy: 'supervised', cadence: 'weekly',
+    mission: 'Consolidar receitas, despesas e projeções por projeto, identificar desvios e preparar um resumo financeiro objetivo para sua revisão.',
+    tools: ['financial','projects','notes'], stopCriteria: 'Parar após conciliar os dados disponíveis e destacar inconsistências ou decisões pendentes.'
+  }
+];
+
+function ensureTeamData() {
+  if (!Array.isArray(S.people)) S.people = [];
+  if (!Array.isArray(S.agents)) S.agents = [];
+  if (!Array.isArray(S.activities)) S.activities = [];
+  let me = S.people.find(person => person.isCurrentUser || person.id === currentUserId);
+  if (!me) {
+    me = {
+      id: currentUserId, type: 'person', name: currentUserName,
+      email: '', role: appSettings.profile.role || 'Founder', access: 'owner',
+      status: 'active', color: currentUserColor, isCurrentUser: true,
+      createdAt: new Date().toISOString()
+    };
+    S.people.unshift(me);
+    savePeople();
+  } else {
+    me.name = currentUserName;
+    me.role = appSettings.profile.role || me.role;
+    me.color = currentUserColor;
+  }
+  if (!S.teamMeta || typeof S.teamMeta !== 'object') S.teamMeta = { catalogVersion: 0 };
+  if ((S.teamMeta.catalogVersion || 0) < 1) {
+    const now = new Date().toISOString();
+    DEFAULT_AGENT_CATALOG.forEach(definition => {
+      const existing = S.agents.find(agent => agent.id === definition.id);
+      if (existing) Object.assign(existing, { ...definition, ...existing, type: 'agent', projectIds: existing.projectIds || [], createdAt: existing.createdAt || now, lastRunAt: existing.lastRunAt || null });
+      else S.agents.push({ ...definition, type: 'agent', projectIds: [], createdAt: now, lastRunAt: null });
+    });
+    S.teamMeta.catalogVersion = 1;
+    syncData({ agents: S.agents, teamMeta: S.teamMeta });
+  }
+  if ((S.teamMeta.runtimeVersion || 0) < 1) {
+    const catalogIds = new Set(DEFAULT_AGENT_CATALOG.map(agent => agent.id));
+    S.agents.forEach(agent => { if (catalogIds.has(agent.id)) agent.status = 'active'; });
+    S.teamMeta.runtimeVersion = 1;
+    syncData({ agents: S.agents, teamMeta: S.teamMeta, agentRuns: S.agentRuns, agentApprovals: S.agentApprovals });
+  }
+  refreshProfiles();
+}
+
+function refreshProfiles() {
+  S.profiles = {};
+  S.people.forEach(person => { S.profiles[person.id] = { id: person.id, display_name: person.name, avatar_color: person.color }; });
+  S.agents.forEach(agent => { S.profiles[agent.id] = { id: agent.id, display_name: agent.name, avatar_color: agent.color }; });
+}
+
+function getActor(id, type) {
+  if (!id) return null;
+  if (type === 'agent') return S.agents.find(agent => agent.id === id) || null;
+  if (type === 'person') return S.people.find(person => person.id === id) || null;
+  return S.people.find(person => person.id === id) || S.agents.find(agent => agent.id === id) || null;
+}
+
+function allActors() {
+  return [
+    ...S.people.filter(person => person.status !== 'inactive').map(person => ({ ...person, type: 'person' })),
+    ...S.agents.filter(agent => agent.status !== 'archived').map(agent => ({ ...agent, type: 'agent' }))
+  ];
+}
+
+function assigneeOptions(item = {}) {
+  const selectedId = item.assignee_id || item.owner_id || currentUserId;
+  return allActors().map(actor => `<option value="${escHtml(actor.type + ':' + actor.id)}"${actor.id === selectedId ? ' selected' : ''}>${actor.type === 'agent' ? '◇ ' : ''}${escHtml(actor.name)} · ${escHtml(actor.role || (actor.type === 'agent' ? 'Agente' : 'Membro'))}</option>`).join('');
+}
+
+function readAssignee(selectId = 'f-assignee') {
+  const raw = document.getElementById(selectId)?.value || `person:${currentUserId}`;
+  const separator = raw.indexOf(':');
+  const type = separator > -1 ? raw.slice(0, separator) : 'person';
+  const id = separator > -1 ? raw.slice(separator + 1) : raw;
+  const actor = getActor(id, type) || getActor(currentUserId, 'person');
+  return {
+    assignee_id: actor?.id || currentUserId,
+    assignee_name: actor?.name || currentUserName,
+    assignee_type: actor?.type || 'person',
+    owner_id: actor?.id || currentUserId,
+    owner_name: actor?.name || currentUserName
+  };
+}
+
+function recordActivity(actor, action, target, detail = '') {
+  const resolved = typeof actor === 'string' ? getActor(actor) : actor;
+  S.activities.unshift({
+    id: uid(), actor_id: resolved?.id || currentUserId,
+    actor_name: resolved?.name || currentUserName,
+    actor_type: resolved?.type || 'person', action, target, detail,
+    createdAt: new Date().toISOString()
+  });
+  S.activities = S.activities.slice(0, 150);
+  saveActivities();
+}
+
+function teamAvatar(actor, size = '') {
+  const isAgent = actor.type === 'agent';
+  return `<span class="team-avatar ${isAgent ? 'is-agent' : ''} ${size}" style="--actor-color:${actor.color || currentUserColor}">${isAgent ? `<i class='bx bx-bot'></i>` : escHtml(profileInitials(actor.name))}</span>`;
+}
+
+function relativeTeamTime(value) {
+  if (!value) return 'Ainda sem atividade';
+  const delta = Math.max(0, Date.now() - new Date(value).getTime());
+  const minutes = Math.floor(delta / 60000);
+  if (minutes < 1) return 'Agora';
+  if (minutes < 60) return `Há ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Há ${hours}h`;
+  const days = Math.floor(hours / 24);
+  return days === 1 ? 'Ontem' : `Há ${days} dias`;
+}
+
+function actorWorkload(actor) {
+  const tasks = S.tasks.filter(task => task.kind !== 'event' && task.col !== 'done' && (task.assignee_id || task.owner_id) === actor.id).length;
+  const projects = S.projects.filter(project => (project.assignee_id || project.owner_id) === actor.id && project.status !== 'Pausado').length;
+  return { tasks, projects };
+}
+
+function renderTeam() {
+  ensureTeamData();
+  renderJarvisAgentSelectors();
+  const activePeople = S.people.filter(person => person.status === 'active').length;
+  const activeAgents = S.agents.filter(agent => agent.status === 'active').length;
+  const assigned = [...S.tasks, ...S.projects].filter(item => item.assignee_id || item.owner_id).length;
+  document.getElementById('teamPeopleCount').textContent = S.people.length;
+  document.getElementById('teamAgentsCount').textContent = S.agents.length;
+  document.getElementById('teamOperationsCount').textContent = S.agentApprovals.filter(item => item.status === 'pending').length || S.agentRuns.filter(item => ['queued','running'].includes(item.status)).length;
+  document.getElementById('teamActivityCount').textContent = Math.min(S.activities.length, 99);
+  document.getElementById('teamMetrics').innerHTML = [
+    ['bx-user-check', activePeople, 'Pessoas ativas', 'blue'],
+    ['bx-bot', activeAgents, 'Agentes em execução', 'purple'],
+    ['bx-link-alt', assigned, 'Itens atribuídos', 'green'],
+    ['bx-history', S.activities.length, 'Registros de atividade', 'amber']
+  ].map(([icon,value,label,tone]) => `<div class="team-metric ${tone}"><span><i class='bx ${icon}'></i></span><div><strong>${value}</strong><small>${label}</small></div></div>`).join('');
+  document.querySelectorAll('.team-tab').forEach(button => button.classList.toggle('active', button.dataset.teamTab === S.teamTab));
+  const view = document.getElementById('teamView');
+  if (S.teamTab === 'agents') view.innerHTML = renderAgentCards();
+  else if (S.teamTab === 'operations') view.innerHTML = renderAgentOperations();
+  else if (S.teamTab === 'activity') view.innerHTML = renderTeamActivity();
+  else view.innerHTML = renderPeopleCards();
+}
+
+function renderPeopleCards() {
+  if (!S.people.length) return `<div class="empty-state"><div class="empty-icon"><i class='bx bx-group'></i></div><div class="empty-title">Nenhuma pessoa adicionada</div><div class="empty-sub">Monte a equipe que vai executar seus projetos.</div></div>`;
+  return `<div class="team-card-grid">${S.people.map(person => {
+    const load = actorWorkload(person);
+    const access = { owner: 'Proprietário', admin: 'Administrador', member: 'Membro', guest: 'Convidado' }[person.access] || 'Membro';
+    return `<article class="member-card">
+      <div class="member-card-head">${teamAvatar(person)}<div class="member-identity"><strong>${escHtml(person.name)}</strong><span>${escHtml(person.role || 'Colaborador')}</span></div><span class="member-status ${person.status}">${person.status === 'active' ? 'Ativo' : 'Inativo'}</span></div>
+      <div class="member-contact">${person.email ? `<i class='bx bx-envelope'></i>${escHtml(person.email)}` : '<i class="bx bx-shield-quarter"></i>Perfil local'}</div>
+      <div class="member-workload"><div><strong>${load.tasks}</strong><span>Tarefas abertas</span></div><div><strong>${load.projects}</strong><span>Projetos</span></div></div>
+      <div class="member-card-foot"><span><i class='bx bx-key'></i>${access}</span><div><button class="btn-icon green" onclick="editPerson('${person.id}')" aria-label="Editar pessoa"><i class='bx bx-edit-alt'></i></button>${person.isCurrentUser ? '' : `<button class="btn-icon danger" onclick="delPerson('${person.id}')" aria-label="Remover pessoa"><i class='bx bx-trash'></i></button>`}</div></div>
+    </article>`;
+  }).join('')}</div>`;
+}
+
+function renderAgentCards() {
+  if (!S.agents.length) return `<div class="empty-state"><div class="empty-icon"><i class='bx bx-bot'></i></div><div class="empty-title">Nenhum agente criado</div><div class="empty-sub">Crie um especialista digital com missão e limites claros.</div></div>`;
+  return `<div class="team-card-grid">${S.agents.map(agent => {
+    const load = actorWorkload(agent);
+    const autonomy = { supervised: 'Supervisionado', approval: 'Aprovação sensível', autonomous: 'Autônomo local' }[agent.autonomy] || 'Supervisionado';
+    return `<article class="member-card agent-card ${agent.status !== 'active' ? 'is-paused' : ''}">
+      <div class="member-card-head">${teamAvatar(agent)}<div class="member-identity"><strong>${escHtml(agent.name)}</strong><span>${escHtml(agent.role || 'Agente')}</span></div><span class="member-status ${agent.status}">${agent.status === 'active' ? 'Ativo' : 'Pausado'}</span></div>
+      <p class="agent-mission">${escHtml(agent.mission || 'Sem missão definida.')}</p>
+      <div class="agent-tools">${(agent.tools || []).map(tool => `<span>${escHtml(AGENT_TOOLS.find(item => item[0] === tool)?.[1] || tool)}</span>`).join('') || '<span>Sem ferramentas</span>'}</div>
+      <div class="member-workload"><div><strong>${load.tasks}</strong><span>Tarefas abertas</span></div><div><strong>${load.projects}</strong><span>Projetos</span></div><div><strong>${relativeTeamTime(agent.lastRunAt)}</strong><span>Última execução</span></div></div>
+      <div class="agent-policy-row"><div class="agent-policy"><i class='bx bx-shield-quarter'></i>${autonomy}</div><div class="agent-policy"><i class='bx bx-time-five'></i>${AGENT_CADENCES[agent.cadence] || 'Sob demanda'}</div></div>
+      <div class="member-card-foot"><div class="agent-card-controls"><button class="agent-toggle ${agent.status === 'active' ? 'pause' : 'play'}" onclick="toggleAgent('${agent.id}')"><i class='bx ${agent.status === 'active' ? 'bx-pause' : 'bx-play'}'></i>${agent.status === 'active' ? 'Pausar' : 'Ativar'}</button><button class="agent-run-now" onclick="runAgentNow('${agent.id}')"${agent.status !== 'active' ? ' disabled' : ''}><i class='bx bx-play-circle'></i>Executar</button></div><div><button class="btn-icon green" onclick="editAgent('${agent.id}')" aria-label="Editar agente"><i class='bx bx-edit-alt'></i></button><button class="btn-icon danger" onclick="delAgent('${agent.id}')" aria-label="Excluir agente"><i class='bx bx-trash'></i></button></div></div>
+    </article>`;
+  }).join('')}</div>`;
+}
+
+function renderAgentOperations() {
+  const pending = S.agentApprovals.filter(item => item.status === 'pending');
+  const runs = S.agentRuns.slice(0, 40);
+  const running = runs.filter(item => ['queued','running'].includes(item.status)).length;
+  const statusMeta = {
+    queued: ['bx-time-five','Na fila'], running: ['bx-loader-alt bx-spin','Executando'],
+    completed: ['bx-check-circle','Concluída'], failed: ['bx-error-circle','Falhou'],
+    awaiting_approval: ['bx-shield-quarter','Aguardando aprovação'], cancelled: ['bx-x-circle','Cancelada']
+  };
+  return `<div class="agent-ops-head"><div><span class="team-eyebrow">Central de operações</span><h2>Trabalho dos agentes</h2><p>${running ? `${running} execução(ões) em andamento.` : 'A fila está livre para novos trabalhos.'}</p></div><button class="btn-primary" type="button" onclick="runAllAgents()"><i class='bx bx-network-chart'></i> Coordenar equipe agora</button></div>
+  ${pending.length ? `<div class="approval-section"><div class="agent-section-title"><div><i class='bx bx-shield-quarter'></i><span><strong>Aprovações pendentes</strong><small>Ações supervisionadas aguardando sua decisão</small></span></div><b>${pending.length}</b></div><div class="approval-list">${pending.map(item => `<article class="approval-card"><div class="approval-agent"><i class='bx bx-bot'></i><span>${escHtml(item.agentName)}</span></div><div class="approval-copy"><strong>${escHtml(item.title)}</strong><p>${escHtml(item.description || 'Ação proposta pelo agente.')}</p></div><div class="approval-actions"><button class="btn-ghost" onclick="resolveAgentApproval('${item.id}','reject')">Recusar</button><button class="btn-primary" onclick="resolveAgentApproval('${item.id}','approve')"><i class='bx bx-check'></i>Aprovar</button></div></article>`).join('')}</div></div>` : ''}
+  <div class="agent-runs-panel"><div class="agent-section-title"><div><i class='bx bx-list-ul'></i><span><strong>Execuções recentes</strong><small>Fila, relatórios, resultados e falhas</small></span></div><b>${runs.length}</b></div>${runs.length ? `<div class="agent-run-list">${runs.map(run => { const meta = statusMeta[run.status] || ['bx-circle','Desconhecida']; return `<button class="agent-run-row ${run.status}" type="button" onclick="viewAgentRun('${run.id}')"><span class="run-status-icon"><i class='bx ${meta[0]}'></i></span><span class="run-main"><strong>${escHtml(run.agentName)}</strong><small>${escHtml(run.summary || run.error || 'Preparando execução...')}</small></span><span class="run-trigger">${escHtml(run.trigger || 'manual')}</span><span class="run-status-label">${meta[1]}</span><time>${relativeTeamTime(run.startedAt || run.queuedAt)}</time><i class='bx bx-chevron-right'></i></button>`; }).join('')}</div>` : `<div class="empty-state compact"><div class="empty-icon"><i class='bx bx-pulse'></i></div><div class="empty-title">Nenhuma execução registrada</div><div class="empty-sub">Execute um agente ou deixe o scheduler iniciar o trabalho.</div></div>`}</div>`;
+}
+
+function runAgentNow(id) {
+  const agent = getActor(id, 'agent');
+  if (!agentRuntime) return toast('Motor de agentes ainda está inicializando.', 'info');
+  if (!agent || agent.status !== 'active') return toast('Ative o agente antes de executar.', 'error');
+  const run = agentRuntime.enqueue(id, 'manual');
+  S.teamTab = 'operations'; renderTeam(); toast(`${agent.name} entrou na fila.`, 'info');
+  return run;
+}
+
+async function runAllAgents() {
+  if (!agentRuntime) return toast('Motor de agentes ainda está inicializando.', 'info');
+  toast('Jarvis está coordenando a equipe.', 'info');
+  await agentRuntime.orchestrate('Revisão completa do workspace');
+  S.teamTab = 'operations'; renderTeam();
+}
+
+async function resolveAgentApproval(id, decision) {
+  if (!agentRuntime) return;
+  const result = await agentRuntime.resolveApproval(id, decision);
+  renderTeam();
+  toast(result.success ? (decision === 'approve' ? 'Ação aprovada e executada.' : 'Ação recusada.') : result.error, result.success ? 'info' : 'error');
+}
+
+function viewAgentRun(id) {
+  const run = S.agentRuns.find(item => item.id === id); if (!run) return;
+  const actions = (run.actions || []).map(action => `<li><i class='bx ${action.status === 'completed' ? 'bx-check-circle' : action.status === 'awaiting_approval' ? 'bx-shield-quarter' : 'bx-error-circle'}'></i><span>${escHtml(action.label || action.action)}<small>${escHtml(action.status.replaceAll('_',' '))}</small></span></li>`).join('');
+  openModal(`${run.agentName} · Relatório`, `<div class="run-report"><div class="run-report-summary"><i class='bx bx-bot'></i><p>${escHtml(run.summary || run.error || 'Execução em andamento.')}</p></div>${(run.details || []).length ? `<h4>Constatações</h4><ul class="run-detail-list">${run.details.map(detail => `<li>${escHtml(detail)}</li>`).join('')}</ul>` : ''}${actions ? `<h4>Ações</h4><ul class="run-action-list">${actions}</ul>` : ''}${run.error ? `<div class="run-error"><i class='bx bx-error-circle'></i>${escHtml(run.error)}</div>` : ''}<div class="run-report-meta"><span>Gatilho: ${escHtml(run.trigger)}</span><span>Início: ${run.startedAt ? new Date(run.startedAt).toLocaleString('pt-BR') : 'Na fila'}</span></div></div>`, null);
+  document.getElementById('modalCancel').style.display = 'none';
+  document.getElementById('modalSave').textContent = 'Fechar';
+}
+
+function renderTeamActivity() {
+  if (!S.activities.length) return `<div class="empty-state"><div class="empty-icon"><i class='bx bx-history'></i></div><div class="empty-title">A atividade aparecerá aqui</div><div class="empty-sub">Criações, alterações e controles de agentes serão registrados.</div></div>`;
+  return `<div class="activity-panel"><div class="activity-head"><div><strong>Histórico do workspace</strong><span>Registro local das ações da equipe</span></div><span>${S.activities.length} eventos</span></div><div class="activity-list">${S.activities.map(item => {
+    const actor = getActor(item.actor_id, item.actor_type) || { type: item.actor_type, name: item.actor_name, color: item.actor_type === 'agent' ? '#8B5CF6' : currentUserColor };
+    return `<div class="activity-item">${teamAvatar(actor, 'small')}<div><p><strong>${escHtml(item.actor_name)}</strong> ${escHtml(item.action)} <b>${escHtml(item.target)}</b></p>${item.detail ? `<span>${escHtml(item.detail)}</span>` : ''}</div><time>${relativeTeamTime(item.createdAt)}</time></div>`;
+  }).join('')}</div></div>`;
+}
+
+function personForm(person = {}) {
+  return `<div class="form-row"><div class="form-group"><label class="form-label">Nome *</label><input class="form-input" id="f-person-name" maxlength="60" value="${escHtml(person.name || '')}" placeholder="Nome da pessoa"></div><div class="form-group"><label class="form-label">E-mail</label><input class="form-input" id="f-person-email" type="email" maxlength="120" value="${escHtml(person.email || '')}" placeholder="pessoa@empresa.com"></div></div>
+  <div class="form-row"><div class="form-group"><label class="form-label">Cargo ou função</label><input class="form-input" id="f-person-role" maxlength="60" value="${escHtml(person.role || '')}" placeholder="Ex: Product Designer"></div><div class="form-group"><label class="form-label">Acesso</label><select class="form-select" id="f-person-access">${[['admin','Administrador'],['member','Membro'],['guest','Convidado'],['owner','Proprietário']].map(([value,label]) => `<option value="${value}"${(person.access || 'member') === value ? ' selected' : ''}>${label}</option>`).join('')}</select></div></div>
+  <div class="form-row"><div class="form-group"><label class="form-label">Status</label><select class="form-select" id="f-person-status"><option value="active"${person.status !== 'inactive' ? ' selected' : ''}>Ativo</option><option value="inactive"${person.status === 'inactive' ? ' selected' : ''}>Inativo</option></select></div><div class="form-group"><label class="form-label">Cor</label><select class="form-select" id="f-person-color">${TEAM_COLORS.map(color => `<option value="${color}"${(person.color || TEAM_COLORS[0]) === color ? ' selected' : ''}>${color}</option>`).join('')}</select></div></div>`;
+}
+
+function readPersonForm(base = {}) {
+  return { ...base, type: 'person', name: document.getElementById('f-person-name').value.trim(), email: document.getElementById('f-person-email').value.trim(), role: document.getElementById('f-person-role').value.trim(), access: document.getElementById('f-person-access').value, status: document.getElementById('f-person-status').value, color: document.getElementById('f-person-color').value, updatedAt: new Date().toISOString() };
+}
+
+function newPerson() {
+  openModal('Adicionar pessoa', personForm(), () => {
+    if (!document.getElementById('f-person-name').value.trim()) { toast('Informe o nome da pessoa.', 'error'); return false; }
+    const person = readPersonForm({ id: uid(), createdAt: new Date().toISOString() });
+    S.people.push(person); refreshProfiles(); savePeople(); recordActivity(null, 'adicionou', person.name, person.role || 'Novo membro da equipe'); renderTeam(); toast('Pessoa adicionada à equipe!');
+  });
+}
+
+function editPerson(id) {
+  const person = S.people.find(item => item.id === id); if (!person) return;
+  openModal('Editar pessoa', personForm(person), () => {
+    if (!document.getElementById('f-person-name').value.trim()) { toast('Informe o nome da pessoa.', 'error'); return false; }
+    const previousName = person.name; Object.assign(person, readPersonForm(person));
+    if (person.isCurrentUser) {
+      person.status = 'active'; person.access = 'owner';
+      currentUserName = person.name; currentUserColor = person.color;
+      appSettings.profile = { ...appSettings.profile, displayName: person.name, role: person.role || 'Founder', avatarColor: person.color };
+      writeStore(SETTINGS_KEY, appSettings);
+      const name = document.getElementById('sidebarUserName'), role = document.getElementById('sidebarUserRole'), avatar = document.getElementById('sidebarUserAvatar');
+      if (name) name.textContent = person.name; if (role) role.textContent = person.role || 'Founder';
+      if (avatar) { avatar.textContent = profileInitials(person.name); avatar.style.background = person.color; }
+    }
+    refreshProfiles(); syncActorReferences(person.id, person.name, 'person'); savePeople(); recordActivity(null, 'atualizou o perfil de', previousName); renderTeam(); if (S.section === 'tasks') renderTasks(); toast('Pessoa atualizada!');
+  });
+}
+
+function delPerson(id) {
+  const person = S.people.find(item => item.id === id); if (!person || person.isCurrentUser) return;
+  openConfirm(() => { reassignActorItems(id); S.people = S.people.filter(item => item.id !== id); refreshProfiles(); savePeople(); recordActivity(null, 'removeu', person.name, 'Itens foram reatribuídos ao proprietário'); renderTeam(); toast('Pessoa removida.', 'info'); });
+}
+
+function agentForm(agent = {}) {
+  const tools = agent.tools || ['tasks'];
+  return `<div class="form-row"><div class="form-group"><label class="form-label">Nome *</label><input class="form-input" id="f-agent-name" maxlength="60" value="${escHtml(agent.name || '')}" placeholder="Ex: Agente Comercial"></div><div class="form-group"><label class="form-label">Especialidade</label><input class="form-input" id="f-agent-role" maxlength="80" value="${escHtml(agent.role || '')}" placeholder="Ex: Prospecção e follow-up"></div></div>
+  <div class="form-group"><label class="form-label">Missão *</label><textarea class="form-textarea" id="f-agent-mission" rows="3" maxlength="300" placeholder="Qual resultado este agente deve perseguir e dentro de quais limites?">${escHtml(agent.mission || '')}</textarea></div>
+  <div class="form-group"><label class="form-label">Ferramentas permitidas</label><div class="agent-tool-picker">${AGENT_TOOLS.map(([value,label]) => `<label><input type="checkbox" value="${value}"${tools.includes(value) ? ' checked' : ''}><span><i class='bx bx-check'></i></span>${label}</label>`).join('')}</div></div>
+  <div class="form-row"><div class="form-group"><label class="form-label">Autonomia</label><select class="form-select" id="f-agent-autonomy"><option value="supervised"${(agent.autonomy || 'supervised') === 'supervised' ? ' selected' : ''}>Supervisionado — aprova tudo</option><option value="approval"${agent.autonomy === 'approval' ? ' selected' : ''}>Aprova apenas ações sensíveis</option><option value="autonomous"${agent.autonomy === 'autonomous' ? ' selected' : ''}>Autônomo em ações locais</option></select></div><div class="form-group"><label class="form-label">Cadência</label><select class="form-select" id="f-agent-cadence">${Object.entries(AGENT_CADENCES).map(([value,label]) => `<option value="${value}"${(agent.cadence || 'on_demand') === value ? ' selected' : ''}>${label}</option>`).join('')}</select></div></div>
+  <div class="form-group"><label class="form-label">Critério de parada</label><textarea class="form-textarea" id="f-agent-stop" rows="2" maxlength="240" placeholder="Quando o agente deve considerar o trabalho concluído ou interrompido?">${escHtml(agent.stopCriteria || '')}</textarea></div>
+  <div class="form-group"><label class="form-label">Cor</label><select class="form-select" id="f-agent-color">${TEAM_COLORS.map(color => `<option value="${color}"${(agent.color || '#8B5CF6') === color ? ' selected' : ''}>${color}</option>`).join('')}</select></div>
+  <div class="agent-safety-note"><i class='bx bx-shield-quarter'></i><div><strong>Limite de segurança</strong><span>Exclusões, movimentações financeiras e ações externas continuam exigindo confirmação.</span></div></div>`;
+}
+
+function readAgentForm(base = {}) {
+  const tools = [...document.querySelectorAll('.agent-tool-picker input:checked')].map(input => input.value);
+  return { ...base, type: 'agent', name: document.getElementById('f-agent-name').value.trim(), role: document.getElementById('f-agent-role').value.trim(), mission: document.getElementById('f-agent-mission').value.trim(), autonomy: document.getElementById('f-agent-autonomy').value, cadence: document.getElementById('f-agent-cadence').value, stopCriteria: document.getElementById('f-agent-stop').value.trim(), tools, color: document.getElementById('f-agent-color').value, status: base.status || 'paused', updatedAt: new Date().toISOString() };
+}
+
+function newAgent() {
+  openModal('Criar agente', agentForm(), () => {
+    const name = document.getElementById('f-agent-name').value.trim(), mission = document.getElementById('f-agent-mission').value.trim();
+    if (!name || !mission) { toast('Informe nome e missão do agente.', 'error'); return false; }
+    const agent = readAgentForm({ id: uid(), type: 'agent', status: 'paused', createdAt: new Date().toISOString(), projectIds: [], lastRunAt: null });
+    S.agents.push(agent); refreshProfiles(); saveAgents(); recordActivity(null, 'criou o agente', agent.name, 'Criado pausado para revisão'); S.teamTab = 'agents'; renderTeam(); toast('Agente criado e pausado para revisão!');
+  });
+}
+
+function editAgent(id) {
+  const agent = S.agents.find(item => item.id === id); if (!agent) return;
+  openModal('Configurar agente', agentForm(agent), () => {
+    if (!document.getElementById('f-agent-name').value.trim() || !document.getElementById('f-agent-mission').value.trim()) { toast('Informe nome e missão do agente.', 'error'); return false; }
+    const previousName = agent.name; Object.assign(agent, readAgentForm(agent)); refreshProfiles(); syncActorReferences(agent.id, agent.name, 'agent'); saveAgents(); recordActivity(null, 'configurou o agente', previousName); renderTeam(); toast('Agente atualizado!');
+  });
+}
+
+function toggleAgent(id) {
+  const agent = S.agents.find(item => item.id === id); if (!agent) return;
+  agent.status = agent.status === 'active' ? 'paused' : 'active'; agent.updatedAt = new Date().toISOString();
+  saveAgents(); recordActivity(null, agent.status === 'active' ? 'ativou o agente' : 'pausou o agente', agent.name, agent.mission); renderTeam(); toast(`Agente ${agent.status === 'active' ? 'ativo' : 'pausado'}.`, 'info');
+}
+
+function delAgent(id) {
+  const agent = S.agents.find(item => item.id === id); if (!agent) return;
+  openConfirm(() => { if (activeChatAgentId === id) selectJarvisAgent('agent-jarvis'); reassignActorItems(id); S.agents = S.agents.filter(item => item.id !== id); refreshProfiles(); saveAgents(); recordActivity(null, 'excluiu o agente', agent.name, 'Itens foram reatribuídos ao proprietário'); renderTeam(); toast('Agente excluído.', 'info'); });
+}
+
+function syncActorReferences(id, name, type) {
+  ['tasks','projects'].forEach(field => S[field].forEach(item => { if ((item.assignee_id || item.owner_id) === id) Object.assign(item, { assignee_id: id, assignee_name: name, assignee_type: type, owner_id: id, owner_name: name }); }));
+  saveTasks(); saveProjects();
+}
+
+function reassignActorItems(id) {
+  const me = getActor(currentUserId, 'person') || S.people[0];
+  if (!me) return;
+  ['tasks','projects'].forEach(field => S[field].forEach(item => { if ((item.assignee_id || item.owner_id) === id) Object.assign(item, { assignee_id: me.id, assignee_name: me.name, assignee_type: 'person', owner_id: me.id, owner_name: me.name }); }));
+  saveTasks(); saveProjects();
+}
+
+async function agentApplyAction(action, agent) {
+  const payload = action.payload || {};
+  if (action.type === 'create_task') {
+    const duplicate = S.tasks.find(task => task.kind !== 'event' && task.col !== 'done' && task.title.toLowerCase() === String(payload.title || '').toLowerCase());
+    if (duplicate) return { success: true, skipped: true, id: duplicate.id, message: 'Tarefa equivalente ja existe.' };
+    const now = new Date().toISOString();
+    const priority = payload.priority === 'Media' ? 'Média' : payload.priority || 'Média';
+    const task = { id: uid(), title: payload.title, description: action.description || '', project: payload.project || '', priority, col: payload.col || 'backlog', due: payload.due || '', estimatedMinutes: 30, recurrence: 'none', blocked: false, subtasks: [], createdAt: now, updatedAt: now, assignee_id: agent.id, assignee_name: agent.name, assignee_type: 'agent', owner_id: agent.id, owner_name: agent.name };
+    S.tasks.unshift(task); saveTasks(); recordActivity(agent, 'criou a tarefa', task.title, task.project || 'Sem projeto');
+    if (S.section === 'tasks') renderTasks();
+    return { success: true, id: task.id, type: 'task' };
+  }
+  if (action.type === 'create_note') {
+    const existing = S.notes.find(note => note.type === 'note' && note.name === payload.name);
+    if (existing) return { success: true, skipped: true, id: existing.id, message: 'Nota equivalente ja existe.' };
+    const now = new Date().toISOString();
+    const note = { id: uid(), type: 'note', name: payload.name || `Relatório de ${agent.name}`, content: payload.content || '', parentId: null, createdAt: now, updatedAt: now, owner_id: agent.id, owner_name: agent.name, assignee_id: agent.id, assignee_name: agent.name, assignee_type: 'agent' };
+    S.notes.unshift(note); saveNotes(); recordActivity(agent, 'criou a nota', note.name);
+    if (S.section === 'notes') renderNotesTree();
+    return { success: true, id: note.id, type: 'note' };
+  }
+  return { success: false, error: `Acao ${action.type} nao suportada pelo runtime local.` };
+}
+
+async function initAgentRuntime() {
+  try {
+    const { AgentRuntime } = await import('./modules/agents/AgentRuntime.js');
+    agentRuntime = new AgentRuntime({
+      state: S,
+      save: updates => syncData(updates),
+      applyAction: agentApplyAction,
+      webSearch: args => jarvisWebSearch(args),
+      onChange: () => { if (S.section === 'team') renderTeam(); updateNotifBadge(); }
+    });
+    agentRuntime.start();
+    window.motionAgents = {
+      run: (id, input = '') => agentRuntime.enqueue(id, 'api', input),
+      orchestrate: input => agentRuntime.orchestrate(input),
+      approve: id => agentRuntime.resolveApproval(id, 'approve'),
+      reject: id => agentRuntime.resolveApproval(id, 'reject'),
+      state: () => ({ runs: S.agentRuns, approvals: S.agentApprovals, agents: S.agents })
+    };
+  } catch (error) {
+    console.error('Agent runtime initialization failed:', error);
+    toast('Não foi possível iniciar o motor de agentes.', 'error');
+  }
+}
+
 /* ===== NAVIGATION ===== */
 const sectionMeta = {
   dashboard:  { label: 'Dashboard',        btnLabel: null },
@@ -934,6 +1356,7 @@ const sectionMeta = {
   studies:    { label: 'Estudos',          btnLabel: 'Nova Matéria' },
   projects:   { label: 'Projetos',          btnLabel: 'Novo Projeto' },
   tasks:      { label: 'Tarefas',           btnLabel: 'Nova Tarefa' },
+  team:       { label: 'Equipe',             btnLabel: null },
   habits:     { label: 'Hábitos',           btnLabel: 'Novo Hábito' },
   ideas:      { label: 'Ideias',            btnLabel: 'Nova Ideia' },
   goals:      { label: 'Metas & OKRs',      btnLabel: 'Nova Meta' },
@@ -945,7 +1368,7 @@ const sectionMeta = {
   settings:   { label: 'Configurações',     btnLabel: null }
 };
 
-const sectionOrder = ['dashboard', 'projects', 'tasks', 'habits', 'agenda', 'studies', 'jarvis', 'canvas', 'ideas', 'goals', 'crm', 'financial', 'review', 'prompts', 'notes', 'settings'];
+const sectionOrder = ['dashboard', 'projects', 'tasks', 'team', 'habits', 'agenda', 'studies', 'jarvis', 'canvas', 'ideas', 'goals', 'crm', 'financial', 'review', 'prompts', 'notes', 'settings'];
 
 function navigateTo(section, direction = null) {
   const contentArea = document.querySelector('.content-area');
@@ -1038,6 +1461,7 @@ function renderSection(section) {
   else if (section === 'dashboard') renderDashboard();
   else if (section === 'projects') renderProjects();
   else if (section === 'tasks') renderTasks();
+  else if (section === 'team') renderTeam();
   else if (section === 'habits') renderHabits();
   else if (section === 'studies') renderStudies();
   else if (section === 'ideas') renderIdeas();
@@ -1065,6 +1489,7 @@ function openModal(title, bodyHTML, onSave) {
   document.getElementById('modalTitle').textContent = title;
   document.getElementById('modalBody').innerHTML = bodyHTML;
   document.getElementById('modalCancel').textContent = 'Cancelar';
+  document.getElementById('modalCancel').style.display = '';
   document.getElementById('modalSave').innerHTML = 'Salvar';
   document.getElementById('modalOverlay').classList.add('open');
   S.modalSave = onSave;
@@ -2212,6 +2637,10 @@ function projectForm(p = {}) {
         <input class="form-range" id="f-progress" type="range" min="0" max="100" value="${p.progress || 0}" oninput="document.getElementById('f-prog-val').textContent=this.value+'%'">
       </div>
     </div>
+    <div class="form-group">
+      <label class="form-label">Responsável</label>
+      <select class="form-select" id="f-assignee">${assigneeOptions(p)}</select>
+    </div>
   `;
 }
 
@@ -2220,7 +2649,9 @@ function newProject(defaultCol) {
     const name = document.getElementById('f-name').value.trim();
     if (!name) { toast('Nome do projeto é obrigatório.', 'error'); return false; }
     const now = new Date().toISOString();
-    S.projects.unshift({ id: uid(), name, desc: document.getElementById('f-desc').value.trim(), status: document.getElementById('f-status').value, priority: document.getElementById('f-priority').value, progress: +document.getElementById('f-progress').value, createdAt: now, updatedAt: now, owner_id: currentUserId, owner_name: currentUserName });
+    const assignment = readAssignee();
+    S.projects.unshift({ id: uid(), name, desc: document.getElementById('f-desc').value.trim(), status: document.getElementById('f-status').value, priority: document.getElementById('f-priority').value, progress: +document.getElementById('f-progress').value, createdAt: now, updatedAt: now, ...assignment });
+    recordActivity(getActor(assignment.assignee_id, assignment.assignee_type), 'assumiu o projeto', name);
     saveProjects(); renderProjects(); renderDashboard(); toast('Projeto criado com sucesso!');
   });
 }
@@ -2231,7 +2662,9 @@ function editProject(id) {
   openModal('Editar Projeto', projectForm(p), () => {
     const name = document.getElementById('f-name').value.trim();
     if (!name) { toast('Nome obrigatório.', 'error'); return false; }
-    Object.assign(p, { name, desc: document.getElementById('f-desc').value.trim(), status: document.getElementById('f-status').value, priority: document.getElementById('f-priority').value, progress: +document.getElementById('f-progress').value, updatedAt: new Date().toISOString() });
+    const assignment = readAssignee();
+    Object.assign(p, { name, desc: document.getElementById('f-desc').value.trim(), status: document.getElementById('f-status').value, priority: document.getElementById('f-priority').value, progress: +document.getElementById('f-progress').value, updatedAt: new Date().toISOString(), ...assignment });
+    recordActivity(getActor(assignment.assignee_id, assignment.assignee_type), 'foi atribuído ao projeto', name);
     saveProjects(); renderProjects(); renderDashboard(); toast('Projeto atualizado!');
   });
 }
@@ -2346,6 +2779,7 @@ function toggleTaskDone(id) {
     createNextTaskOccurrence(task);
   }
   task.updatedAt = new Date().toISOString();
+  recordActivity(null, task.col === 'done' ? 'concluiu a tarefa' : 'reabriu a tarefa', task.title);
   saveTasks(); renderTasks(); renderDashboard();
 }
 
@@ -2450,6 +2884,10 @@ function taskForm(t = {}) {
         </select>
       </div>
     </div>
+    <div class="form-group">
+      <label class="form-label">Responsável</label>
+      <select class="form-select" id="f-assignee">${assigneeOptions(t)}</select>
+    </div>
     <label class="task-block-toggle">
       <input type="checkbox" id="f-task-blocked"${t.blocked ? ' checked' : ''}>
       <span><i class='bx bx-block'></i></span>
@@ -2477,7 +2915,8 @@ function readTaskForm(base = {}) {
     estimatedMinutes: Math.max(0, Number(document.getElementById('f-task-estimate').value) || 0),
     recurrence: document.getElementById('f-task-recurrence').value,
     blocked: document.getElementById('f-task-blocked').checked,
-    subtasks: collectSubtasks()
+    subtasks: collectSubtasks(),
+    ...readAssignee()
   };
 }
 
@@ -2486,7 +2925,9 @@ function newTask(col) {
   openModal('Nova Tarefa', taskForm(def), () => {
     const title = document.getElementById('f-title').value.trim();
     if (!title) { toast('Título obrigatório.', 'error'); return false; }
-    S.tasks.unshift(readTaskForm({ id: uid(), owner_id: currentUserId, owner_name: currentUserName }));
+    const task = readTaskForm({ id: uid() });
+    S.tasks.unshift(task);
+    recordActivity(getActor(task.assignee_id, task.assignee_type), 'recebeu a tarefa', task.title, task.project || 'Sem projeto');
     saveTasks(); renderTasks(); renderDashboard(); if (S.section === 'agenda') renderAgenda(); toast('Tarefa criada!');
   });
 }
@@ -2498,6 +2939,7 @@ function editTask(id) {
     const title = document.getElementById('f-title').value.trim();
     if (!title) { toast('Título obrigatório.', 'error'); return false; }
     Object.assign(t, readTaskForm(t));
+    recordActivity(getActor(t.assignee_id, t.assignee_type), 'teve a tarefa atualizada', t.title);
     saveTasks(); renderTasks(); renderDashboard(); if (S.section === 'agenda') renderAgenda(); toast('Tarefa atualizada!');
   });
 }
@@ -2511,7 +2953,7 @@ function delTask(id) {
 
 function moveTask(id, col) {
   const t = S.tasks.find(x => x.id === id);
-  if (t) { t.col = col; t.updatedAt = new Date().toISOString(); saveTasks(); renderTasks(); renderDashboard(); }
+  if (t) { t.col = col; t.updatedAt = new Date().toISOString(); recordActivity(null, 'moveu a tarefa', t.title, colLabels[col] || col); saveTasks(); renderTasks(); renderDashboard(); }
 }
 
 /* ===== IDEAS ===== */
@@ -4381,6 +4823,13 @@ function buildNotifications() {
   const today = new Date().toISOString().slice(0, 10);
   const notifs = [];
   const preferences = appSettings.notifications;
+  const approvals = S.agentApprovals.filter(item => item.status === 'pending');
+  if (approvals.length) notifs.push({
+    icon: 'bx-shield-quarter', color: 'purple',
+    title: `${approvals.length} aprovação${approvals.length > 1 ? 'ões' : ''} de agente${approvals.length > 1 ? 's' : ''}`,
+    desc: approvals.slice(0, 2).map(item => `${item.agentName}: ${item.title}`).join(', '),
+    section: 'team'
+  });
   if (!preferences.enabled) return notifs;
 
   const overdue = S.tasks.filter(t => t.kind !== 'event' && t.col !== 'done' && t.due && t.due < today);
@@ -4432,7 +4881,7 @@ function renderNotifPanel() {
   const count  = document.getElementById('notifCount');
   count.textContent = notifs.length;
 
-  if (!appSettings.notifications.enabled) {
+  if (!appSettings.notifications.enabled && !notifs.length) {
     list.innerHTML = `<div class="notif-empty"><i class='bx bx-bell-off'></i><p>Notificações desativadas</p><button class="panel-action" type="button" onclick="closeNotifPanel();openSettings('notifications')">Configurar alertas</button></div>`;
     return;
   }
@@ -4442,7 +4891,7 @@ function renderNotifPanel() {
     return;
   }
   list.innerHTML = notifs.map(n => `
-    <div class="notif-item notif-${n.color}" onclick="navigateTo('${n.section}');closeNotifPanel()">
+    <div class="notif-item notif-${n.color}" onclick="openNotificationSection('${n.section}')">
       <div class="notif-item-icon"><i class='bx ${n.icon}'></i></div>
       <div class="notif-item-body">
         <div class="notif-item-title">${n.title}</div>
@@ -4559,6 +5008,13 @@ function bindEvents() {
     btn.addEventListener('click', () => renderProjects(btn.dataset.filter));
   });
 
+  document.querySelectorAll('.team-tab').forEach(btn => {
+    btn.addEventListener('click', () => {
+      S.teamTab = btn.dataset.teamTab;
+      renderTeam();
+    });
+  });
+
   // Prompt filters
   document.querySelectorAll('#section-prompts .ftab').forEach(btn => {
     btn.addEventListener('click', () => renderPrompts(btn.dataset.filter));
@@ -4673,10 +5129,12 @@ async function startApp() {
   seedIfEmpty(existingData);
   seedV2(existingData);
   seedNotes(existingData);
+  ensureTeamData();
   bindEvents();
   initSettings();
   initBackup();
   initJarvis();
+  await initAgentRuntime();
   initInsights();
   initNotes();
   if (!projectRhythmInterval) {
@@ -4709,6 +5167,7 @@ const COMMAND_CENTER_ACTIONS = [
   { id: 'new-subject', title: 'Criar nova matéria', sub: 'Adicionar uma matéria ao período acadêmico', icon: 'bx-book-open', keywords: 'estudos materia faculdade disciplina criar' },
   { id: 'go-settings', title: 'Abrir Configurações', sub: 'Gerenciar perfil, aparência, alertas, Jarvis e dados', icon: 'bx-cog', keywords: 'configuracoes preferencias perfil aparencia notificacoes backup jarvis' },
   { id: 'go-tasks', title: 'Ir para Tarefas', sub: 'Abrir sua lista de tarefas', icon: 'bx-list-check', keywords: 'navegar tarefas lista' },
+  { id: 'go-team', title: 'Ir para Equipe', sub: 'Gerenciar pessoas, agentes e responsabilidades', icon: 'bx-group', keywords: 'navegar equipe pessoas agentes colaboradores' },
   { id: 'go-agenda', title: 'Ir para Agenda', sub: 'Abrir calendário e recorrências', icon: 'bx-calendar', keywords: 'navegar agenda calendario' },
   { id: 'go-studies', title: 'Ir para Estudos', sub: 'Abrir a Central Acadêmica', icon: 'bx-book-reader', keywords: 'navegar estudos faculdade materias avaliacoes sessoes' }
 ];
@@ -4736,6 +5195,7 @@ function runCommand(command) {
     'new-subject': () => { navigateTo('studies'); newSubject(); },
     'go-settings': () => openSettings('profile'),
     'go-tasks': () => navigateTo('tasks'),
+    'go-team': () => navigateTo('team'),
     'go-agenda': () => navigateTo('agenda'),
     'go-studies': () => navigateTo('studies')
   };
@@ -4784,6 +5244,9 @@ function globalSearchHandler() {
 
     const projects = S.projects.filter(p => p.name.toLowerCase().includes(q) || (p.desc||'').toLowerCase().includes(q)).slice(0, 3);
     if (projects.length) groups.push({ label: 'Projetos', icon: 'bx-folder-open', bg: '--amber-dim', color: '--amber', section: 'projects', items: projects.map(p => ({ title: p.name, sub: p.status })) });
+
+    const actors = allActors().filter(actor => `${actor.name} ${actor.role || ''} ${actor.mission || ''}`.toLowerCase().includes(q)).slice(0, 4);
+    if (actors.length) groups.push({ label: 'Equipe', icon: 'bx-group', bg: '--purple-dim', color: '--purple', section: 'team', items: actors.map(actor => ({ title: actor.name, sub: actor.type === 'agent' ? `Agente · ${actor.status === 'active' ? 'Ativo' : 'Pausado'}` : actor.role || 'Colaborador' })) });
 
     const ideas = S.ideas.filter(i => i.name.toLowerCase().includes(q) || (i.problem||'').toLowerCase().includes(q)).slice(0, 3);
     if (ideas.length) groups.push({ label: 'Ideias', icon: 'bx-bulb', bg: '--purple-dim', color: '--purple', section: 'ideas', items: ideas.map(i => ({ title: i.name, sub: i.status })) });
@@ -5246,6 +5709,11 @@ function jarvisStoredGroqKey() {
   return String(localStorage.getItem(JARVIS_KEY_STORE) || '').trim();
 }
 
+function openNotificationSection(section) {
+  if (section === 'team') S.teamTab = 'operations';
+  navigateTo(section); closeNotifPanel();
+}
+
 function jarvisReadGroqStatus() {
   try { return JSON.parse(localStorage.getItem(JARVIS_KEY_STATUS_STORE) || 'null'); }
   catch { return null; }
@@ -5337,12 +5805,91 @@ let jarvisOpen     = false;
 let jarvisMessages = [];
 let jarvisBusy     = false;
 let jarvisGreeted  = false;
+const JARVIS_AGENT_CHAT_KEY = 'motion_agent_conversations_v1';
+const JARVIS_ACTIVE_AGENT_KEY = 'motion_active_chat_agent_v1';
+let activeChatAgentId = 'agent-jarvis';
+let jarvisAgentConversations = {};
 let jarvisAbortController = null;
 let jarvisProgressTimer = null;
 const jarvisUndoHistory = [];
 const jarvisPendingOperations = new Map();
 let jarvisTurnOperations = [];
 let jarvisTurnPending = [];
+
+function activeChatAgent() {
+  return S.agents.find(agent => agent.id === activeChatAgentId) || S.agents.find(agent => agent.id === 'agent-jarvis') || { id: 'agent-jarvis', name: 'Jarvis', role: 'Assistente do workspace', color: '#8B5CF6', status: 'active' };
+}
+
+function jarvisAgentInitial(agent = activeChatAgent()) {
+  return agent.id === 'agent-jarvis' ? '&gt;_' : escHtml(String(agent.name || 'A').charAt(0).toUpperCase());
+}
+
+function jarvisLoadAgentChats() {
+  const stored = readStore(JARVIS_AGENT_CHAT_KEY, {});
+  jarvisAgentConversations = stored && typeof stored === 'object' ? stored : {};
+  const selected = readStore(JARVIS_ACTIVE_AGENT_KEY, 'agent-jarvis');
+  activeChatAgentId = S.agents.some(agent => agent.id === selected) ? selected : 'agent-jarvis';
+  jarvisMessages = Array.isArray(jarvisAgentConversations[activeChatAgentId]) ? jarvisAgentConversations[activeChatAgentId] : [];
+}
+
+function jarvisPersistAgentChat() {
+  jarvisAgentConversations[activeChatAgentId] = jarvisMessages.slice(-80);
+  writeStore(JARVIS_AGENT_CHAT_KEY, jarvisAgentConversations);
+  writeStore(JARVIS_ACTIVE_AGENT_KEY, activeChatAgentId);
+}
+
+function jarvisAgentPersonaInstruction() {
+  const agent = activeChatAgent();
+  if (agent.id === 'agent-jarvis') return 'Voce conversa como Jarvis, chefe de gabinete digital e orquestrador da equipe.';
+  const focus = {
+    'agent-atlas': 'Conduza a conversa como gestor de projetos: cobre resultados, decomponha trabalho, identifique bloqueios e transforme decisoes em proximas acoes.',
+    'agent-scout': 'Conduza a conversa como pesquisador de mercado: procure evidencias, diferencie fatos de inferencias, cite fontes e destaque implicacoes praticas.',
+    'agent-closer': 'Conduza a conversa como operador comercial: foque pipeline, qualificacao, follow-ups, objecoes e proximo passo de cada oportunidade.',
+    'agent-ledger': 'Conduza a conversa como controller financeiro: seja preciso, conservador, mostre premissas e nunca altere dados financeiros sem aprovacao.'
+  }[agent.id] || `Conduza a conversa segundo esta missao: ${agent.mission || agent.role}.`;
+  return `Nesta conversa voce e ${agent.name}, ${agent.role || 'agente especialista'} da equipe Motion. Nao se apresente como Jarvis. ${focus} Sua missao declarada e: ${agent.mission || 'ajudar dentro de sua especialidade'}. Se o usuario pedir para voce executar seu trabalho operacional, acione o runtime real do agente e relate o resultado confirmado.`;
+}
+
+function jarvisAgentMenuMarkup() {
+  return S.agents.map(agent => `<button class="jarvis-agent-option${agent.id === activeChatAgentId ? ' active' : ''}" type="button" role="option" aria-selected="${agent.id === activeChatAgentId}" data-chat-agent="${escHtml(agent.id)}"><span class="jarvis-agent-option-avatar" style="--agent-color:${agent.color || '#8B5CF6'}">${jarvisAgentInitial(agent)}</span><span><strong>${escHtml(agent.name)}</strong><small>${escHtml(agent.role || 'Agente')}</small></span><i class='bx ${agent.status === 'active' ? 'bx-radio-circle-marked' : 'bx-pause-circle'}'></i></button>`).join('');
+}
+
+function renderJarvisAgentSelectors() {
+  const agent = activeChatAgent();
+  ['jarvisAgentMenu','jarvisPageAgentMenu'].forEach(id => { const menu = document.getElementById(id); if (menu) menu.innerHTML = jarvisAgentMenuMarkup(); });
+  const panelName = document.getElementById('jarvisActiveAgentName'), pageName = document.getElementById('jarvisPageAgentName');
+  if (panelName) panelName.textContent = agent.name; if (pageName) pageName.textContent = agent.name;
+  const pageTitle = document.getElementById('jarvisPageTitle'), pageRole = document.getElementById('jarvisPageRole');
+  if (pageTitle) pageTitle.textContent = agent.name.toLowerCase(); if (pageRole) pageRole.textContent = agent.role || 'agente ativo';
+  const avatar = document.getElementById('jarvisActiveAgentAvatar');
+  if (avatar) { avatar.innerHTML = `<span>${jarvisAgentInitial(agent)}</span>`; avatar.style.borderColor = `${agent.color || '#8B5CF6'}66`; avatar.style.color = agent.color || '#8B5CF6'; }
+  ['jarvisInput','jarvisPageInput'].forEach(id => { const input = document.getElementById(id); if (input) input.placeholder = `Mensagem para ${agent.name}...`; });
+}
+
+function toggleJarvisAgentMenu(scope = 'panel') {
+  const menu = document.getElementById(scope === 'page' ? 'jarvisPageAgentMenu' : 'jarvisAgentMenu');
+  const button = document.getElementById(scope === 'page' ? 'jarvisPageAgentBtn' : 'jarvisAgentBtn');
+  const open = !menu?.classList.contains('open');
+  document.querySelectorAll('.jarvis-agent-menu').forEach(item => item.classList.remove('open'));
+  document.querySelectorAll('.jarvis-agent-picker [aria-expanded]').forEach(item => item.setAttribute('aria-expanded', 'false'));
+  menu?.classList.toggle('open', open); button?.setAttribute('aria-expanded', String(open));
+}
+
+function selectJarvisAgent(id) {
+  if (jarvisBusy) return toast('Aguarde ou cancele a resposta atual antes de trocar de agente.', 'info');
+  const agent = S.agents.find(item => item.id === id); if (!agent) return;
+  jarvisPersistAgentChat();
+  activeChatAgentId = id;
+  jarvisMessages = Array.isArray(jarvisAgentConversations[id]) ? jarvisAgentConversations[id] : [];
+  jarvisGreeted = jarvisMessages.some(message => message.role === 'assistant');
+  window.JarvisCognitive?.resetConversation();
+  renderJarvisAgentSelectors(); jarvisRenderHistory();
+  document.querySelectorAll('.jarvis-agent-menu').forEach(menu => menu.classList.remove('open'));
+  if (!jarvisGreeted) jarvisGreet();
+  jarvisPersistAgentChat();
+  const input = document.getElementById(S.section === 'jarvis' ? 'jarvisPageInput' : 'jarvisInput');
+  input?.focus();
+}
 
 const JARVIS_TOOLS = [
   {
@@ -6007,7 +6554,25 @@ function jarvisOperationSubject(result = {}, args = {}) {
   return entity?.title || entity?.name || entity?.objective || entity?.desc || args.title || args.name || args.objective || args.desc || args.text || '';
 }
 
+function activeAgentCanUseTool(name) {
+  const agent = activeChatAgent();
+  if (agent.id === 'agent-jarvis') return true;
+  const common = ['get_summary','show_choices','navigate_to','web_search'];
+  if (common.includes(name)) return name !== 'web_search' || (agent.tools || []).includes('web');
+  const domains = {
+    tasks: ['list_tasks','create_task','update_task','delete_task','list_recurring_events','create_recurring_event','update_recurring_event','delete_recurring_event'],
+    projects: ['list_projects','create_project'],
+    notes: ['list_notes','search_notes','read_note','create_note'],
+    crm: ['list_contacts','create_contact'],
+    financial: ['add_transaction','list_transactions','update_transaction','delete_transaction','get_financial_forecast'],
+    goals: ['list_goals','create_goal'],
+    web: ['web_search']
+  };
+  return (agent.tools || []).some(domain => domains[domain]?.includes(name));
+}
+
 async function jarvisRunTool(name, args = {}, executionContext = {}) {
+  if (!activeAgentCanUseTool(name)) return { success: false, error: `${activeChatAgent().name} não possui permissão para usar ${name.replaceAll('_',' ')}.` };
   const policy = jarvisOperationPolicy(name);
   if (policy.mutation && policy.requiresConfirmation && !executionContext.confirmed) {
     const signature = `${name}:${JSON.stringify(args)}`;
@@ -6455,6 +7020,7 @@ function jarvisBuildHubSnapshot() {
     .map(([project, sec]) => `${project}: ${formatWorkTime(sec)}`)
     .join('; ');
   const currentInsights = generateInsights().slice(0, 6).map(insight => `${insight.title}: ${insight.message}`);
+  const agentStatus = S.agents.map(agent => `${agent.name} (${agent.status}, ultima execucao: ${agent.lastRunSummary || 'nenhuma'})`).join('; ');
 
   return [
     `Projetos: ${S.projects.length}. Ativos: ${activeProjects.join('; ') || 'nenhum'}.`,
@@ -6464,12 +7030,15 @@ function jarvisBuildHubSnapshot() {
     `Financeiro realizado: entradas ${fmtCurrency(financialRealized.income)}, saidas ${fmtCurrency(financialRealized.expense)}, saldo ${fmtCurrency(financialRealized.balance)}. Recorrencias: ${S.transactions.filter(isRecurringTransaction).length}. Fluxo previsto em 30 dias: ${fmtCurrency(financialNext30.balance)}.`,
     `Ritmo dos projetos hoje: ${timeByProject || 'nenhum tempo registrado'}. Projeto atual: ${rhythm.timer?.project || rhythm.activeProject || 'nenhum'}.`,
     `Sinais proativos do Jarvis: ${currentInsights.join('; ') || 'nenhum sinal urgente'}.`,
+    `Equipe de agentes: ${agentStatus || 'nenhum'}. Aprovacoes pendentes: ${S.agentApprovals.filter(item => item.status === 'pending').length}.`,
     `Notas: ${S.notes.filter(n => n.type === 'note').length}. Secao atual: ${sectionMeta[S.section]?.label || S.section}.`
   ].join('\n');
 }
 
 function jarvisBuildSystemPrompt() {
-  return `Voce e o Jarvis, assistente pessoal de ${currentUserName} integrado ao Motion Hub.
+  return `${jarvisAgentPersonaInstruction()}
+
+Voce esta integrado ao Motion Hub de ${currentUserName} e possui o mesmo nucleo seguro de ferramentas do Jarvis.
 
 Papel principal:
 - Seja um assistente generalista inteligente: responda duvidas sobre negocios, tecnologia, produto, marketing, vendas, financas, estudos, estrategia e temas gerais.
@@ -6507,6 +7076,7 @@ Uso de ferramentas:
 - Para perguntas gerais, nao use ferramentas sem necessidade.
 - Antes de alterar dados importantes, confirme se o pedido estiver ambiguo.
 - Depois de executar uma acao, confirme brevemente o que foi feito.
+- Quando o usuario pedir para a equipe trabalhar, coordenar agentes ou executar Atlas, Scout, Closer ou Ledger, use o runtime local de agentes por meio dos comandos do proprio Jarvis; nunca finja uma execucao.
 
 Hoje e ${new Date().toLocaleDateString('pt-BR', { weekday:'long', year:'numeric', month:'long', day:'numeric' })}.
 Responda sempre em portugues brasileiro.
@@ -6663,11 +7233,48 @@ async function jarvisTryLocal(text, { fallback = false } = {}) {
   const starts = pattern => pattern.test(normalized);
 
   if (/^(oi|ola|bom dia|boa tarde|boa noite|e ai|jarvis)$/.test(normalized)) {
-    return { handled: true, response: `Olá, **${currentUserName}**! O cérebro local está ativo. Posso operar tarefas, agenda, hábitos, projetos, financeiro, planejamento diário e navegação mesmo sem o Groq.` };
+    const agent = activeChatAgent();
+    return { handled: true, response: agent.id === 'agent-jarvis'
+      ? `Olá, **${currentUserName}**! O cérebro local e a equipe de agentes estão ativos.`
+      : `Olá, **${currentUserName}**! Aqui é **${agent.name}**. Estou pronto para ajudar como ${String(agent.role || 'especialista').toLowerCase()}.` };
   }
 
   if (/^(ajuda|comandos|o que voce consegue fazer|o que voce faz)$/.test(normalized) || normalized.includes('modo local')) {
     return { handled: true, response: '**Cérebro local disponível sem limites:**\n- Consultar, criar e concluir tarefas\n- Resumir ou planejar seu dia\n- Capturar itens na caixa de entrada\n- Consultar projetos, metas, hábitos e financeiro\n- Registrar receitas e despesas\n- Navegar pelo Motion Hub\n\nPara análises abertas, criatividade e conversas gerais, uso o Groq quando estiver disponível.' };
+  }
+
+  const selectedChatAgent = activeChatAgent();
+  if (selectedChatAgent.id !== 'agent-jarvis' && /^(faca|faça|execute|rode|comece|trabalhe)( o)?( seu)? trabalho|o que voce pode fazer agora/.test(normalized)) {
+    if (!agentRuntime) return { handled: true, response: 'Meu motor operacional ainda está inicializando.' };
+    if (selectedChatAgent.status !== 'active') return { handled: true, response: `Estou pausado. Você pode me ativar em **Equipe → Agentes**.` };
+    const run = agentRuntime.enqueue(selectedChatAgent.id, 'conversation', text);
+    await agentRuntime.drain();
+    return { handled: true, response: `Concluí minha execução: **${run.summary || run.error || run.status}**${run.status === 'awaiting_approval' ? '\n\nMinha próxima ação aguarda sua aprovação em **Equipe → Operações**.' : ''}` };
+  }
+
+  if (/(status|como estao|relatorio|o que fizeram).*(agentes|equipe)|(?:agentes|equipe).*(status|trabalhando)/.test(normalized)) {
+    const lines = S.agents.map(agent => {
+      const latest = S.agentRuns.find(run => run.agentId === agent.id);
+      return `- **${agent.name}** · ${agent.status === 'active' ? 'ativo' : 'pausado'} · ${latest?.summary || latest?.error || 'ainda sem execução'}`;
+    });
+    const approvals = S.agentApprovals.filter(item => item.status === 'pending').length;
+    return { handled: true, response: `**Status da equipe de agentes:**\n${lines.join('\n')}\n\n${approvals ? `Existem **${approvals} aprovação(ões)** aguardando você em Equipe → Operações.` : 'Não há aprovações pendentes.'}` };
+  }
+
+  if (/(coordene|coordenar|execute|executar|rode|rodar|coloque).*(agentes|equipe).*(trabalhar|agora|completa|todos)?/.test(normalized)) {
+    if (!agentRuntime) return { handled: true, response: 'O motor de agentes ainda está inicializando. Tente novamente em alguns segundos.' };
+    await agentRuntime.orchestrate(text);
+    const recent = S.agentRuns.filter(run => run.trigger === 'jarvis' || run.trigger === 'orchestration').slice(0, S.agents.length);
+    return { handled: true, response: `Coordenei a equipe agora.\n\n${recent.map(run => `- **${run.agentName}:** ${run.summary || run.error || run.status}`).join('\n')}\n\n${S.agentApprovals.some(item => item.status === 'pending') ? 'Há ações aguardando sua aprovação em **Equipe → Operações**.' : 'Todas as ações locais permitidas foram processadas.'}` };
+  }
+
+  const requestedAgent = S.agents.find(agent => normalized.includes(jarvisNormalize(agent.name)));
+  if (requestedAgent && /\b(execute|executar|rode|rodar|trabalhe|trabalhar|chame|acionar|acione)\b/.test(normalized)) {
+    if (!agentRuntime) return { handled: true, response: 'O motor de agentes ainda está inicializando.' };
+    if (requestedAgent.status !== 'active') return { handled: true, response: `**${requestedAgent.name}** está pausado. Ative-o em Equipe → Agentes antes de executar.` };
+    const run = agentRuntime.enqueue(requestedAgent.id, 'jarvis', text);
+    await agentRuntime.drain();
+    return { handled: true, response: `**${requestedAgent.name} concluiu o trabalho:** ${run.summary || run.error || run.status}${run.status === 'awaiting_approval' ? '\n\nA próxima ação aguarda sua aprovação em Equipe → Operações.' : ''}` };
   }
 
   if (/(o que voce (percebeu|recomenda|sugere)|insights?|recomendacoes|projetos?\s+(?:\S+\s+)?parados?|minhas prioridades)/.test(normalized)) {
@@ -6836,7 +7443,7 @@ async function jarvisCallGroqNoTools(messages, experience = {}, signal = jarvisA
   const cleanMessages = jarvisCleanMessages(messages);
   const data = await jarvisGroqRequest('chat/completions', { signal, body: {
     model: JARVIS_MODEL,
-    messages: [{ role: 'system', content: jarvisBuildCognitivePrompt(experience) }, ...cleanMessages],
+    messages: [{ role: 'system', content: `${jarvisBuildSystemPrompt()}\n${jarvisBuildCognitivePrompt(experience)}` }, ...cleanMessages],
     max_tokens: 1600
   } });
   return data.choices[0];
@@ -6864,7 +7471,11 @@ async function jarvisSend(source = 'panel') {
   let cognitive = null;
 
   try {
-    if (window.JarvisCognitive) {
+    const specialistDirect = activeChatAgentId !== 'agent-jarvis' && (/^(oi|ola|bom dia|boa tarde|boa noite|e ai)$/.test(jarvisNormalize(text)) || /^(faca|faça|execute|rode|comece|trabalhe)( o)?( seu)? trabalho|o que voce pode fazer agora/.test(jarvisNormalize(text)))
+      ? await jarvisTryLocal(text) : null;
+    if (specialistDirect?.handled) {
+      cognitive = { ...specialistDirect, source: 'local', needsGroq: false };
+    } else if (window.JarvisCognitive) {
       cognitive = await window.JarvisCognitive.process(text, {
         signal: jarvisAbortController.signal,
         onProgress: stage => jarvisSetProgress(stage.label),
@@ -7129,13 +7740,14 @@ function jarvisAppendMsg(role, content, brain = '', experience = null) {
       const representation = experience?.representation?.type;
       const representationLabel = representation && representation !== 'text'
         ? `<span class="jarvis-representation-badge">${jarvisEsc(representation)}</span>` : '';
-      div.innerHTML = `<div class="jarvis-avatar-sm"><span>&gt;_</span></div><div class="jarvis-bubble">${brainLabel ? `<span class="jarvis-brain-badge ${brain}"><i class='bx ${brain === 'groq' ? 'bx-cloud' : 'bx-code-alt'}'></i>${brainLabel}</span>` : ''}${representationLabel}${jarvisMd(content)}${jarvisActionMarkup(experience?.actions || [])}</div>`;
+      div.innerHTML = `<div class="jarvis-avatar-sm agent-chat-avatar" style="color:${activeChatAgent().color || '#8B5CF6'};border-color:${activeChatAgent().color || '#8B5CF6'}66"><span>${jarvisAgentInitial()}</span></div><div class="jarvis-bubble">${brainLabel ? `<span class="jarvis-brain-badge ${brain}"><i class='bx ${brain === 'groq' ? 'bx-cloud' : 'bx-code-alt'}'></i>${brainLabel}</span>` : ''}${representationLabel}${jarvisMd(content)}${jarvisActionMarkup(experience?.actions || [])}</div>`;
     } else {
       div.innerHTML = `<div class="jarvis-bubble"><i class='bx bx-error-circle'></i> ${jarvisEsc(content)}</div>`;
     }
     list.appendChild(div);
     list.scrollTop = list.scrollHeight;
   });
+  jarvisPersistAgentChat();
 }
 
 function jarvisAppendChoices(title, description, options) {
@@ -7266,7 +7878,11 @@ function jarvisPromptKey() {
 function jarvisGreet() {
   if (jarvisGreeted) return;
   jarvisGreeted = true;
-  jarvisAppendMsg('assistant', `Olá, **${currentUserName}**! Meu cérebro local organiza contexto, memória, conhecimento e skills. O Groq entra apenas quando a tarefa exige análise especializada.`, 'social');
+  const agent = activeChatAgent();
+  const greeting = agent.id === 'agent-jarvis'
+    ? `Olá, **${currentUserName}**! Eu sou o Jarvis. Posso coordenar sua equipe, organizar prioridades e executar o trabalho pelo Motion Hub.`
+    : `Olá, **${currentUserName}**! Eu sou **${agent.name}**, ${String(agent.role || 'agente especialista').toLowerCase()}. ${agent.mission || 'Como posso ajudar dentro da minha especialidade?'}`;
+  jarvisAppendMsg('assistant', greeting, 'social');
 }
 
 function jarvisSetBrainStatus(mode = 'hybrid') {
@@ -7279,6 +7895,7 @@ function jarvisSetBrainStatus(mode = 'hybrid') {
 }
 
 function renderJarvisPage() {
+  renderJarvisAgentSelectors();
   jarvisRenderHistory();
   if (!jarvisMessages.some(msg => msg.role === 'user' || msg.role === 'assistant')) jarvisGreeted = false;
   jarvisGreet();
@@ -7291,14 +7908,25 @@ function jarvisToggle() {
   document.getElementById('jarvisBtn')?.classList.toggle('active', jarvisOpen);
   if (jarvisOpen) {
     if (!jarvisGreeted) {
-      jarvisGreeted = true;
-      jarvisAppendMsg('assistant', `Olá, **${currentUserName}**! Meu cérebro local organiza contexto, memória, conhecimento e skills. O Groq entra apenas quando a tarefa exige análise especializada.`, 'social');
+      jarvisGreet();
     }
     setTimeout(() => document.getElementById('jarvisInput')?.focus(), 120);
   }
 }
 
 function initJarvis() {
+  jarvisLoadAgentChats();
+  renderJarvisAgentSelectors();
+  document.getElementById('jarvisAgentBtn')?.addEventListener('click', e => { e.stopPropagation(); toggleJarvisAgentMenu('panel'); });
+  document.getElementById('jarvisPageAgentBtn')?.addEventListener('click', e => { e.stopPropagation(); toggleJarvisAgentMenu('page'); });
+  document.addEventListener('click', e => {
+    const option = e.target.closest('[data-chat-agent]');
+    if (option) { e.stopPropagation(); selectJarvisAgent(option.dataset.chatAgent); return; }
+    if (!e.target.closest('.jarvis-agent-picker')) {
+      document.querySelectorAll('.jarvis-agent-menu').forEach(menu => menu.classList.remove('open'));
+      document.querySelectorAll('.jarvis-agent-picker [aria-expanded]').forEach(button => button.setAttribute('aria-expanded', 'false'));
+    }
+  });
   document.getElementById('jarvisBtn')?.addEventListener('click', e => { e.stopPropagation(); jarvisToggle(); });
   document.getElementById('jarvisClose')?.addEventListener('click', () => {
     jarvisOpen = false;
@@ -7321,8 +7949,7 @@ function initJarvis() {
     window.JarvisCognitive?.resetConversation();
     jarvisGreeted  = false;
     jarvisRenderHistory();
-    jarvisAppendMsg('assistant', 'Conversa limpa. Como posso ajudar?');
-    jarvisGreeted = true;
+    jarvisGreet();
   });
   document.getElementById('jarvisKeyBtn')?.addEventListener('click', jarvisPromptKey);
   document.getElementById('jarvisPageSend')?.addEventListener('click', () => jarvisSend('page'));
@@ -7341,8 +7968,7 @@ function initJarvis() {
     window.JarvisCognitive?.resetConversation();
     jarvisGreeted = false;
     jarvisRenderHistory();
-    jarvisAppendMsg('assistant', 'Conversa limpa. Como posso ajudar?');
-    jarvisGreeted = true;
+    jarvisGreet();
   });
   document.getElementById('jarvisPageKey')?.addEventListener('click', jarvisPromptKey);
   document.querySelectorAll('.jarvis-prompt').forEach(btn => {
