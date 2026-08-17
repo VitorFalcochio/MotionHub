@@ -80,6 +80,9 @@
       <a class="nav-item" data-section="tasks">
         <i class='bx bx-check-square'></i><span>Tarefas</span>
       </a>
+      <a class="nav-item" data-section="team">
+        <i class='bx bx-group'></i><span>Equipe</span>
+      </a>
       <a class="nav-item" data-section="habits">
         <i class='bx bx-calendar-check'></i><span>Hábitos</span>
       </a>
@@ -635,12 +638,16 @@
               <div class="jarvis-terminal-mark"><span>&gt;_</span></div>
               <div class="jarvis-page-title">
                 <div class="jarvis-title-row">
-                  <h1>jarvis</h1>
+                  <h1 id="jarvisPageTitle">jarvis</h1>
                   <span class="jarvis-version">workspace</span>
                 </div>
-                <p><span class="jarvis-session-dot"></span> sessão ativa <span class="jarvis-head-separator">/</span> contexto do Motion Hub</p>
+                <p><span class="jarvis-session-dot"></span> <span id="jarvisPageRole">sessão ativa</span> <span class="jarvis-head-separator">/</span> contexto do Motion Hub</p>
               </div>
               <div class="jarvis-page-actions">
+                <div class="jarvis-agent-picker" id="jarvisPageAgentPicker">
+                  <button class="jarvis-agent-picker-btn" id="jarvisPageAgentBtn" type="button" aria-haspopup="listbox" aria-expanded="false"><i class='bx bx-bot'></i><span id="jarvisPageAgentName">Jarvis</span><i class='bx bx-chevron-down'></i></button>
+                  <div class="jarvis-agent-menu" id="jarvisPageAgentMenu" role="listbox"></div>
+                </div>
                 <button class="jarvis-tool-btn" id="jarvisPageClear" title="Limpar conversa" aria-label="Limpar conversa"><i class='bx bx-trash'></i></button>
                 <button class="jarvis-tool-btn" id="jarvisPageKey" title="Configurar chave Groq"><i class='bx bx-key'></i><span>Conexão</span></button>
               </div>
@@ -665,6 +672,29 @@
           </div>
 
         </div>
+      </section>
+
+      <!-- ==================== TEAM ==================== -->
+      <section class="page" id="section-team">
+        <div class="team-hero">
+          <div>
+            <span class="team-eyebrow">Pessoas + inteligência operacional</span>
+            <h1>Sua equipe, em um só lugar</h1>
+            <p>Distribua responsabilidades e acompanhe o trabalho de colaboradores e agentes digitais.</p>
+          </div>
+          <div class="team-hero-actions">
+            <button class="btn-ghost" type="button" onclick="newPerson()"><i class='bx bx-user-plus'></i> Pessoa</button>
+            <button class="btn-primary" type="button" onclick="newAgent()"><i class='bx bx-bot'></i> Agente</button>
+          </div>
+        </div>
+        <div class="team-metrics" id="teamMetrics"></div>
+        <div class="team-tabs" role="tablist" aria-label="Visões da equipe">
+          <button class="team-tab active" type="button" data-team-tab="people"><i class='bx bx-user'></i> Pessoas <span id="teamPeopleCount">0</span></button>
+          <button class="team-tab" type="button" data-team-tab="agents"><i class='bx bx-bot'></i> Agentes <span id="teamAgentsCount">0</span></button>
+          <button class="team-tab" type="button" data-team-tab="operations"><i class='bx bx-pulse'></i> Operações <span id="teamOperationsCount">0</span></button>
+          <button class="team-tab" type="button" data-team-tab="activity"><i class='bx bx-history'></i> Atividade <span id="teamActivityCount">0</span></button>
+        </div>
+        <div id="teamView"></div>
       </section>
 
       <!-- ==================== CANVAS ==================== -->
@@ -728,12 +758,13 @@
 
 <div class="jarvis-panel" id="jarvisPanel">
   <div class="jarvis-head">
-    <div class="jarvis-head-left">
-      <div class="jarvis-avatar-sm"><span>&gt;_</span></div>
-      <div>
-        <div class="jarvis-name">Jarvis</div>
-        <div class="jarvis-status"><span class="jarvis-dot"></span><span id="jarvisBrainStatus">Híbrido</span></div>
-      </div>
+    <div class="jarvis-agent-picker jarvis-agent-picker-panel" id="jarvisAgentPicker">
+      <button class="jarvis-agent-identity" id="jarvisAgentBtn" type="button" aria-haspopup="listbox" aria-expanded="false">
+        <div class="jarvis-avatar-sm" id="jarvisActiveAgentAvatar"><span>&gt;_</span></div>
+        <div><div class="jarvis-name" id="jarvisActiveAgentName">Jarvis</div><div class="jarvis-status"><span class="jarvis-dot"></span><span id="jarvisBrainStatus">Híbrido</span></div></div>
+        <i class='bx bx-chevron-down'></i>
+      </button>
+      <div class="jarvis-agent-menu" id="jarvisAgentMenu" role="listbox"></div>
     </div>
     <div class="jarvis-head-actions">
       <button class="jarvis-icon-btn" id="jarvisClear" title="Limpar conversa"><i class='bx bx-trash'></i></button>
