@@ -5699,7 +5699,8 @@ function initNotes() {
    JARVIS — Assistente Virtual (Groq)
    ==================================================== */
 
-const JARVIS_MODEL    = 'llama-3.3-70b-versatile';
+const JARVIS_MODELS = ['openai/gpt-oss-120b', 'qwen/qwen3.6-27b', 'openai/gpt-oss-20b'];
+let jarvisActiveGroqModel = JARVIS_MODELS[0];
 const JARVIS_KEY_STORE = 'jarvis_groq_key';
 const JARVIS_KEY_STATUS_STORE = 'jarvis_groq_key_status_v1';
 const CODE_ASSET_INDEX_STORE = 'motion_code_assets_index_v1';
@@ -5773,9 +5774,44 @@ async function jarvisGroqRequest(path, { method = 'POST', key = jarvisStoredGroq
   return data;
 }
 
+function jarvisGroqModelUnavailable(error) {
+  const detail = `${error?.code || ''} ${error?.providerMessage || error?.message || ''}`.toLowerCase();
+  return [403, 404].includes(Number(error?.status || 0))
+    || /model.*(not exist|not found|decommission|deprecated|permission|access)/.test(detail);
+}
+
+function jarvisGroqModelOrder() {
+  return [jarvisActiveGroqModel, ...JARVIS_MODELS].filter((model, index, models) => models.indexOf(model) === index);
+}
+
 async function jarvisValidateGroqKey(key, signal) {
-  await jarvisGroqRequest(`models/${encodeURIComponent(JARVIS_MODEL)}`, { method: 'GET', key, signal });
-  return true;
+  let lastError;
+  for (const model of jarvisGroqModelOrder()) {
+    try {
+      await jarvisGroqRequest(`models/${encodeURIComponent(model)}`, { method: 'GET', key, signal });
+      jarvisActiveGroqModel = model;
+      return true;
+    } catch (error) {
+      lastError = error;
+      if (!jarvisGroqModelUnavailable(error)) throw error;
+    }
+  }
+  throw lastError;
+}
+
+async function jarvisGroqCompletion(body, signal) {
+  let lastError;
+  for (const model of jarvisGroqModelOrder()) {
+    try {
+      const data = await jarvisGroqRequest('chat/completions', { signal, body: { ...body, model } });
+      jarvisActiveGroqModel = model;
+      return data;
+    } catch (error) {
+      lastError = error;
+      if (!jarvisGroqModelUnavailable(error)) throw error;
+    }
+  }
+  throw lastError;
 }
 
 const JARVIS_ASSET_FALLBACK = [
@@ -7420,8 +7456,7 @@ function jarvisBuildCognitivePrompt(experience = {}) {
 async function jarvisCallGroq(messages, experience = {}, signal = jarvisAbortController?.signal) {
   const systemPrompt = jarvisBuildSystemPrompt();
   const cleanMessages = jarvisCleanMessages(messages);
-  const data = await jarvisGroqRequest('chat/completions', { signal, body: {
-    model: JARVIS_MODEL,
+  const data = await jarvisGroqCompletion({
     messages: [{
       role: 'system',
       content: `${systemPrompt}
@@ -7435,17 +7470,16 @@ Para pedidos sobre componentes, snippets, botoes, inputs, cards, loaders, animac
     tool_choice: 'auto',
     parallel_tool_calls: false,
     max_tokens: 1600
-  } });
+  }, signal);
   return data.choices[0];
 }
 
 async function jarvisCallGroqNoTools(messages, experience = {}, signal = jarvisAbortController?.signal) {
   const cleanMessages = jarvisCleanMessages(messages);
-  const data = await jarvisGroqRequest('chat/completions', { signal, body: {
-    model: JARVIS_MODEL,
+  const data = await jarvisGroqCompletion({
     messages: [{ role: 'system', content: `${jarvisBuildSystemPrompt()}\n${jarvisBuildCognitivePrompt(experience)}` }, ...cleanMessages],
     max_tokens: 1600
-  } });
+  }, signal);
   return data.choices[0];
 }
 
