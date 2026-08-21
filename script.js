@@ -36,6 +36,7 @@ const S = {
   confirmOk: null,
   projectFilter: 'all',
   taskFilter: 'all',
+  taskView: 'list',
   promptFilter: 'all',
   finFilter: 'all',
   studyView: 'overview',
@@ -69,9 +70,7 @@ const BACKUP_STORES = [
   { key: SETTINGS_KEY, label: 'Preferências', icon: 'bx-cog' },
   { key: INSIGHT_STATE_KEY, label: 'Jarvis proativo', icon: 'bx-bot' },
   { key: PROJECT_RHYTHM_KEY, label: 'Ritmo dos projetos', icon: 'bx-timer' },
-  { key: 'motion_agent_conversations_v1', label: 'Conversas com agentes', icon: 'bx-conversation' },
-  { key: 'growth_hub_data_v2', label: 'Growth Hub', icon: 'bx-line-chart' },
-  { key: 'motion_code_assets_library_v1', label: 'Code Assets', icon: 'bx-code-curly' }
+  { key: 'motion_agent_conversations_v1', label: 'Conversas com agentes', icon: 'bx-conversation' }
 ];
 let currentUserId   = 'vitor';
 let currentUserName = 'Vitor';
@@ -1349,7 +1348,7 @@ async function initAgentRuntime() {
 
 /* ===== NAVIGATION ===== */
 const sectionMeta = {
-  dashboard:  { label: 'Dashboard',        btnLabel: null },
+  dashboard:  { label: 'Início',           btnLabel: null },
   jarvis:     { label: 'Jarvis',           btnLabel: null },
   canvas:     { label: 'Canvas',           btnLabel: null },
   agenda:     { label: 'Agenda',           btnLabel: 'Novo Evento' },
@@ -1364,11 +1363,19 @@ const sectionMeta = {
   financial:  { label: 'Financeiro',        btnLabel: 'Novo Lançamento' },
   review:     { label: 'Revisão Semanal',   btnLabel: 'Nova Revisão' },
   prompts:    { label: 'Prompts & Docs',    btnLabel: 'Novo Documento' },
-  notes:      { label: 'Notas',             btnLabel: null },
+  notes:      { label: 'Conhecimento',      btnLabel: null },
   settings:   { label: 'Configurações',     btnLabel: null }
 };
 
-const sectionOrder = ['dashboard', 'projects', 'tasks', 'team', 'habits', 'agenda', 'studies', 'jarvis', 'canvas', 'ideas', 'goals', 'crm', 'financial', 'review', 'prompts', 'notes', 'settings'];
+const sectionParents = {
+  ideas: 'dashboard',
+  review: 'dashboard',
+  goals: 'projects',
+  prompts: 'notes',
+  team: 'settings'
+};
+const personalSections = new Set(['habits', 'studies', 'canvas']);
+const sectionOrder = ['dashboard', 'projects', 'tasks', 'agenda', 'notes', 'crm', 'financial', 'jarvis'];
 
 function navigateTo(section, direction = null) {
   const contentArea = document.querySelector('.content-area');
@@ -1383,8 +1390,10 @@ function navigateTo(section, direction = null) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   const page = document.getElementById('section-' + section);
   if (page) page.classList.add('active');
-  const navItem = document.querySelector(`.nav-item[data-section="${section}"]`);
+  const navSection = sectionParents[section] || section;
+  const navItem = document.querySelector(`.nav-item[data-section="${navSection}"]`);
   if (navItem) navItem.classList.add('active');
+  if (personalSections.has(section)) document.getElementById('personalNav')?.setAttribute('open', '');
   S.section = section;
   document.querySelector('.content-area')?.classList.toggle('jarvis-active', section === 'jarvis');
   document.querySelector('.content-area')?.classList.toggle('canvas-active', section === 'canvas');
@@ -2712,14 +2721,64 @@ function renderTasks() {
     || (priorityOrder[a.priority] ?? 9) - (priorityOrder[b.priority] ?? 9)
     || (a.due || '9999-12-31').localeCompare(b.due || '9999-12-31'));
 
-  document.getElementById('taskList').innerHTML = tasks.length
-    ? tasks.map(taskListItem).join('')
-    : `<div class="task-list-empty"><i class='bx bx-check-circle'></i><strong>Nenhuma tarefa por aqui</strong><span>${q ? 'Tente outro termo de busca.' : 'Adicione uma tarefa ou escolha outro filtro.'}</span></div>`;
+  document.querySelectorAll('[data-task-view]').forEach(button => button.classList.toggle('active', button.dataset.taskView === S.taskView));
+  document.getElementById('taskListPanel')?.classList.toggle('kanban-view', S.taskView === 'kanban');
+  const target = document.getElementById('taskList');
+  if (S.taskView === 'kanban') {
+    target.innerHTML = taskKanbanView(tasks, q);
+  } else {
+    target.innerHTML = tasks.length
+      ? tasks.map(taskListItem).join('')
+      : taskEmptyState(q);
+  }
 }
 
 function setTaskFilter(filter) {
   S.taskFilter = filter;
   renderTasks();
+}
+
+function setTaskView(view = 'list') {
+  S.taskView = view === 'kanban' ? 'kanban' : 'list';
+  renderTasks();
+}
+
+function taskEmptyState(query = '') {
+  return `<div class="task-list-empty"><i class='bx bx-check-circle'></i><strong>Nenhuma tarefa por aqui</strong><span>${query ? 'Tente outro termo de busca.' : 'Adicione uma tarefa ou escolha outro filtro.'}</span></div>`;
+}
+
+function taskKanbanView(tasks, query = '') {
+  if (!tasks.length) return taskEmptyState(query);
+  return `<div class="task-kanban">${Object.keys(taskStatusMeta).map(col => {
+    const meta = taskStatusMeta[col];
+    const items = tasks.filter(task => task.col === col);
+    return `<section class="task-kanban-column ${meta.tone}">
+      <header><span><i class='bx ${meta.icon}'></i>${meta.label}</span><strong>${items.length}</strong></header>
+      <div class="task-kanban-cards">
+        ${items.length ? items.map(taskKanbanCard).join('') : '<div class="task-kanban-empty">Nenhuma tarefa</div>'}
+      </div>
+    </section>`;
+  }).join('')}</div>`;
+}
+
+function taskKanbanCard(task) {
+  const today = localDateString(new Date());
+  const overdue = task.due && task.due < today && task.col !== 'done';
+  return `<article class="task-kanban-card${task.col === 'done' ? ' is-done' : ''}" onclick="editTask('${task.id}')">
+    <div class="task-kanban-card-head">
+      <span class="prio ${prioClass(task.priority)}">${escHtml(task.priority)}</span>
+      <button class="task-complete" type="button" onclick="event.stopPropagation();toggleTaskDone('${task.id}')" aria-label="${task.col === 'done' ? 'Reabrir' : 'Concluir'} tarefa"><i class='bx ${task.col === 'done' ? 'bx-check' : ''}'></i></button>
+    </div>
+    <strong>${escHtml(task.title)}</strong>
+    ${task.description ? `<p>${escHtml(task.description)}</p>` : ''}
+    <footer>
+      <span>${task.project ? `<i class='bx bx-folder'></i>${escHtml(task.project)}` : '<i class="bx bx-layer"></i>Sem projeto'}</span>
+      <span class="${overdue ? 'overdue' : ''}">${task.due ? `<i class='bx bx-calendar'></i>${fmtDate(task.due)}` : ''}</span>
+    </footer>
+    <select class="task-status-select status-${task.col}" aria-label="Mover tarefa" onclick="event.stopPropagation()" onchange="event.stopPropagation();moveTask('${task.id}',this.value)">
+      ${Object.entries(colLabels).map(([key, label]) => `<option value="${key}"${task.col === key ? ' selected' : ''}>${label}</option>`).join('')}
+    </select>
+  </article>`;
 }
 
 function taskListItem(t) {
@@ -4917,6 +4976,7 @@ function bindEvents() {
   // Sidebar navigation
   document.querySelectorAll('.nav-item').forEach(item => {
     item.addEventListener('click', e => {
+      if (!item.dataset.section) return;
       if (item.classList.contains('nav-external')) return;
       e.preventDefault();
       navigateTo(item.dataset.section);
@@ -5161,13 +5221,13 @@ const COMMAND_CENTER_ACTIONS = [
   { id: 'jarvis-insights', title: 'Ver recomendações do Jarvis', sub: 'Prioridades, projetos parados e sinais do workspace', icon: 'bx-bot', keywords: 'jarvis insights recomendacoes projetos parados prioridades' },
   { id: 'customize-dashboard', title: 'Personalizar Dashboard', sub: 'Reordenar ou ocultar blocos', icon: 'bx-slider-alt', keywords: 'dashboard personalizar widgets organizar' },
   { id: 'new-task', title: 'Criar nova tarefa', sub: 'Adicionar uma tarefa completa', icon: 'bx-check-square', keywords: 'tarefa criar adicionar' },
-  { id: 'new-note', title: 'Criar nota rápida', sub: 'Capturar com sugestão de nota', icon: 'bx-note', keywords: 'nota criar escrever inbox' },
-  { id: 'new-idea', title: 'Registrar uma ideia', sub: 'Capturar com sugestão de ideia', icon: 'bx-bulb', keywords: 'ideia criar registrar inbox' },
+  { id: 'new-note', title: 'Criar nota rápida', sub: 'Salvar no espaço de Conhecimento', icon: 'bx-note', keywords: 'nota conhecimento criar escrever inbox' },
+  { id: 'new-idea', title: 'Registrar uma ideia', sub: 'Capturar na Inbox e organizar depois', icon: 'bx-bulb', keywords: 'ideia criar registrar inbox' },
   { id: 'new-transaction', title: 'Registrar lançamento financeiro', sub: 'Adicionar uma receita ou despesa', icon: 'bx-dollar-circle', keywords: 'financeiro gasto despesa receita transacao' },
   { id: 'new-subject', title: 'Criar nova matéria', sub: 'Adicionar uma matéria ao período acadêmico', icon: 'bx-book-open', keywords: 'estudos materia faculdade disciplina criar' },
   { id: 'go-settings', title: 'Abrir Configurações', sub: 'Gerenciar perfil, aparência, alertas, Jarvis e dados', icon: 'bx-cog', keywords: 'configuracoes preferencias perfil aparencia notificacoes backup jarvis' },
   { id: 'go-tasks', title: 'Ir para Tarefas', sub: 'Abrir sua lista de tarefas', icon: 'bx-list-check', keywords: 'navegar tarefas lista' },
-  { id: 'go-team', title: 'Ir para Equipe', sub: 'Gerenciar pessoas, agentes e responsabilidades', icon: 'bx-group', keywords: 'navegar equipe pessoas agentes colaboradores' },
+  { id: 'go-team', title: 'Gerenciar Equipe', sub: 'Abrir pessoas e agentes em Configurações', icon: 'bx-group', keywords: 'configuracoes equipe pessoas agentes colaboradores' },
   { id: 'go-agenda', title: 'Ir para Agenda', sub: 'Abrir calendário e recorrências', icon: 'bx-calendar', keywords: 'navegar agenda calendario' },
   { id: 'go-studies', title: 'Ir para Estudos', sub: 'Abrir a Central Acadêmica', icon: 'bx-book-reader', keywords: 'navegar estudos faculdade materias avaliacoes sessoes' }
 ];
@@ -5252,7 +5312,7 @@ function globalSearchHandler() {
     if (ideas.length) groups.push({ label: 'Ideias', icon: 'bx-bulb', bg: '--purple-dim', color: '--purple', section: 'ideas', items: ideas.map(i => ({ title: i.name, sub: i.status })) });
 
     const notes = S.notes.filter(n => n.type === 'note' && (n.name.toLowerCase().includes(q) || (n.content||'').toLowerCase().includes(q))).slice(0, 5);
-    if (notes.length) groups.push({ label: 'Notas', icon: 'bx-notepad', bg: '--green-dim', color: '--green', section: 'notes', items: notes.map(n => {
+    if (notes.length) groups.push({ label: 'Conhecimento', icon: 'bx-notepad', bg: '--green-dim', color: '--green', section: 'notes', items: notes.map(n => {
       const folder = n.parentId ? S.notes.find(f => f.id === n.parentId) : null;
       return { title: n.name, sub: folder ? folder.name : 'Notas', noteId: n.id };
     })});
@@ -5703,8 +5763,6 @@ const JARVIS_MODELS = ['openai/gpt-oss-120b', 'qwen/qwen3.6-27b', 'openai/gpt-os
 let jarvisActiveGroqModel = JARVIS_MODELS[0];
 const JARVIS_KEY_STORE = 'jarvis_groq_key';
 const JARVIS_KEY_STATUS_STORE = 'jarvis_groq_key_status_v1';
-const CODE_ASSET_INDEX_STORE = 'motion_code_assets_index_v1';
-const CODE_ASSET_SEARCH_REQUEST_STORE = 'motion_code_assets_search_request_v1';
 
 function jarvisStoredGroqKey() {
   return String(localStorage.getItem(JARVIS_KEY_STORE) || '').trim();
@@ -5813,29 +5871,6 @@ async function jarvisGroqCompletion(body, signal) {
   }
   throw lastError;
 }
-
-const JARVIS_ASSET_FALLBACK = [
-  { id: 'asset-1', title: 'Magnetic CTA', category: 'buttons', categoryLabel: 'Botoes', level: 'Intermediario', desc: 'Botao escuro com brilho e resposta magnetica ao cursor.', tags: ['cta','hover','js','landing','dark'], hasJs: true },
-  { id: 'asset-2', title: 'Liquid Button', category: 'buttons', categoryLabel: 'Botoes', level: 'Basico', desc: 'Botao com onda liquida animada para telas modernas.', tags: ['button','css','motion','landing'], hasJs: false },
-  { id: 'asset-3', title: 'Neon Border Button', category: 'buttons', categoryLabel: 'Botoes', level: 'Basico', desc: 'Botao dark com borda neon animada sem dependencias.', tags: ['neon','css','dark','landing'], hasJs: false },
-  { id: 'asset-4', title: 'Icon Micro Button Set', category: 'buttons', categoryLabel: 'Botoes', level: 'Basico', desc: 'Conjunto de botoes compactos para toolbars.', tags: ['toolbar','icons','app'], hasJs: false },
-  { id: 'asset-5', title: 'Split Action Button', category: 'buttons', categoryLabel: 'Botoes', level: 'Intermediario', desc: 'Acao principal com menu secundario compacto.', tags: ['menu','action','dashboard'], hasJs: false },
-  { id: 'asset-6', title: 'Pulse Ring CTA', category: 'buttons', categoryLabel: 'Botoes', level: 'Basico', desc: 'Chamada de acao com anel pulsante.', tags: ['pulse','cta','landing'], hasJs: false },
-  { id: 'asset-7', title: 'Reveal On Scroll', category: 'animations', categoryLabel: 'Animacoes', level: 'Intermediario', desc: 'Entrada suave de elementos conforme aparecem na tela.', tags: ['scroll','observer','landing'], hasJs: true },
-  { id: 'asset-8', title: 'Counter Up', category: 'animations', categoryLabel: 'Animacoes', level: 'Intermediario', desc: 'Contador numerico animado para metricas.', tags: ['metric','number','dashboard'], hasJs: true },
-  { id: 'asset-9', title: 'Parallax Tilt', category: 'animations', categoryLabel: 'Animacoes', level: 'Intermediario', desc: 'Card inclina com o movimento do cursor.', tags: ['tilt','hover','card'], hasJs: true },
-  { id: 'asset-10', title: 'Typewriter Headline', category: 'text', categoryLabel: 'Text Effects', level: 'Intermediario', desc: 'Texto digitado automaticamente com cursor.', tags: ['headline','typing','landing'], hasJs: true },
-  { id: 'asset-11', title: 'Gradient Text Shine', category: 'text', categoryLabel: 'Text Effects', level: 'Basico', desc: 'Headline com gradiente animado de brilho.', tags: ['gradient','headline','landing'], hasJs: false },
-  { id: 'asset-12', title: 'Scramble Text Hover', category: 'text', categoryLabel: 'Text Effects', level: 'Avancado', desc: 'Texto embaralha letras ao passar o mouse.', tags: ['hover','letters','dark'], hasJs: true },
-  { id: 'asset-13', title: 'Glass Product Card', category: 'cards', categoryLabel: 'Cards', level: 'Basico', desc: 'Card glassmorphism com acao e badge.', tags: ['glass','product','landing','dark'], hasJs: false },
-  { id: 'asset-14', title: 'Pricing Card', category: 'cards', categoryLabel: 'Cards', level: 'Basico', desc: 'Card de plano com lista de beneficios.', tags: ['pricing','saas','landing'], hasJs: false },
-  { id: 'asset-15', title: 'Stat Stack Card', category: 'cards', categoryLabel: 'Cards', level: 'Basico', desc: 'Card compacto para dashboard com delta.', tags: ['dashboard','metric','dark'], hasJs: false },
-  { id: 'asset-21', title: 'Mesh Gradient Background', category: 'backgrounds', categoryLabel: 'Backgrounds', level: 'Basico', desc: 'Fundo com manchas suaves animadas.', tags: ['mesh','gradient','hero','landing'], hasJs: false },
-  { id: 'asset-22', title: 'Grid Glow Background', category: 'backgrounds', categoryLabel: 'Backgrounds', level: 'Basico', desc: 'Grade tecnica para dashboards e landing pages dark.', tags: ['grid','background','dark','hero'], hasJs: false },
-  { id: 'asset-25', title: 'Animated Nav Pill', category: 'menus', categoryLabel: 'Menus', level: 'Intermediario', desc: 'Menu com indicador que acompanha a aba ativa.', tags: ['nav','tabs','landing'], hasJs: true },
-  { id: 'asset-29', title: 'Floating Label Input', category: 'forms', categoryLabel: 'Inputs', level: 'Basico', desc: 'Input com label flutuante acessivel.', tags: ['input','form','login'], hasJs: false },
-  { id: 'asset-33', title: 'Bento Layout', category: 'layouts', categoryLabel: 'Layouts', level: 'Basico', desc: 'Layout bento para apresentar features.', tags: ['bento','features','landing'], hasJs: false }
-];
 
 let jarvisOpen     = false;
 let jarvisMessages = [];
@@ -6168,7 +6203,7 @@ const JARVIS_TOOLS = [
         properties: {
           section: {
             type: 'string',
-            enum: ['dashboard','jarvis','projects','tasks','habits','agenda','ideas','goals','crm','financial','review','prompts','notes','settings']
+            enum: ['dashboard','jarvis','projects','tasks','team','habits','agenda','studies','canvas','ideas','goals','crm','financial','review','prompts','notes','settings']
           }
         },
         required: ['section']
@@ -6355,39 +6390,6 @@ const JARVIS_TOOLS = [
   {
     type: 'function',
     function: {
-      name: 'open_code_assets',
-      description: 'Abre a biblioteca Code Assets do Motion Hub em assets.html, opcionalmente ja filtrada por busca, categoria ou asset.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query:    { type: 'string' },
-          category: { type: 'string', enum: ['all','animations','buttons','cards','loaders','backgrounds','menus','forms','text','layouts'] },
-          asset_id: { type: 'string' }
-        },
-        required: []
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'search_code_assets',
-      description: 'Pesquisa na biblioteca Code Assets e retorna os melhores snippets para um caso de uso. Use antes de abrir/filtrar a biblioteca.',
-      parameters: {
-        type: 'object',
-        properties: {
-          query:    { type: 'string', description: 'Ex: 5 botoes bons para landing page dark' },
-          category: { type: 'string', enum: ['all','animations','buttons','cards','loaders','backgrounds','menus','forms','text','layouts'] },
-          limit:    { type: 'number', minimum: 1, maximum: 10 },
-          open:     { type: 'boolean', description: 'Se true, abre assets.html com os filtros aplicados depois de pesquisar.' }
-        },
-        required: ['query']
-      }
-    }
-  },
-  {
-    type: 'function',
-    function: {
       name: 'complete_task',
       description: 'Marca uma tarefa como concluída pelo ID.',
       parameters: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] }
@@ -6446,111 +6448,6 @@ const JARVIS_TOOLS = [
 
 function jarvisNormalize(value) {
   return String(value || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-}
-
-function jarvisReadAssetIndex() {
-  try {
-    const stored = JSON.parse(localStorage.getItem(CODE_ASSET_INDEX_STORE) || '{}');
-    if (Array.isArray(stored.assets) && stored.assets.length) return stored.assets;
-  } catch (_) {}
-  return JARVIS_ASSET_FALLBACK;
-}
-
-function jarvisSearchCodeAssets(args = {}) {
-  const category = args.category || 'all';
-  const limit = Math.min(Math.max(+args.limit || 5, 1), 10);
-  const rawQuery = args.query || '';
-  const query = jarvisNormalize(rawQuery);
-  const terms = query.split(/\s+/).filter(term => term.length > 2);
-  const aliases = {
-    botao: 'buttons',
-    botoes: 'buttons',
-    button: 'buttons',
-    buttons: 'buttons',
-    input: 'forms',
-    inputs: 'forms',
-    form: 'forms',
-    formulario: 'forms',
-    card: 'cards',
-    cards: 'cards',
-    loader: 'loaders',
-    loading: 'loaders',
-    menu: 'menus',
-    nav: 'menus',
-    texto: 'text',
-    headline: 'text',
-    animacao: 'animations',
-    animacoes: 'animations',
-    background: 'backgrounds',
-    fundo: 'backgrounds',
-    layout: 'layouts',
-    landing: 'layouts'
-  };
-  const inferredCategory = category !== 'all' ? category : terms.map(term => aliases[term]).find(Boolean) || 'all';
-
-  const results = jarvisReadAssetIndex()
-    .filter(asset => inferredCategory === 'all' || asset.category === inferredCategory)
-    .map(asset => {
-      const title = jarvisNormalize(asset.title);
-      const tags = jarvisNormalize((asset.tags || []).join(' '));
-      const desc = jarvisNormalize(asset.desc);
-      const cat = jarvisNormalize(`${asset.category} ${asset.categoryLabel || ''}`);
-      const haystack = `${title} ${tags} ${desc} ${cat}`;
-      let score = 0;
-      terms.forEach(term => {
-        if (title.includes(term)) score += 8;
-        if (tags.includes(term)) score += 5;
-        if (desc.includes(term)) score += 3;
-        if (cat.includes(term)) score += 4;
-        if (haystack.includes(term)) score += 1;
-      });
-      if (inferredCategory !== 'all' && asset.category === inferredCategory) score += 10;
-      if (query.includes('dark') && haystack.includes('dark')) score += 8;
-      if (query.includes('landing') && haystack.includes('landing')) score += 6;
-      if (query.includes('cta') && haystack.includes('cta')) score += 6;
-      return { ...asset, score };
-    })
-    .filter(asset => asset.score > 0 || inferredCategory !== 'all')
-    .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title))
-    .slice(0, limit)
-    .map(asset => ({
-      id: asset.id,
-      title: asset.title,
-      category: asset.category,
-      categoryLabel: asset.categoryLabel || asset.category,
-      level: asset.level,
-      desc: asset.desc,
-      tags: asset.tags || [],
-      hasJs: Boolean(asset.hasJs),
-      score: asset.score
-    }));
-
-  const request = {
-    query: rawQuery,
-    category: inferredCategory,
-    asset_id: results[0]?.id || '',
-    result_ids: results.map(asset => asset.id),
-    createdAt: new Date().toISOString()
-  };
-  localStorage.setItem(CODE_ASSET_SEARCH_REQUEST_STORE, JSON.stringify(request));
-
-  return { query: rawQuery, category: inferredCategory, count: results.length, results };
-}
-
-function jarvisOpenCodeAssets(args = {}) {
-  const params = new URLSearchParams();
-  if (args.query) params.set('q', args.query);
-  if (args.category && args.category !== 'all') params.set('category', args.category);
-  if (args.asset_id) params.set('asset', args.asset_id);
-  const request = {
-    query: args.query || '',
-    category: args.category || 'all',
-    asset_id: args.asset_id || '',
-    createdAt: new Date().toISOString()
-  };
-  localStorage.setItem(CODE_ASSET_SEARCH_REQUEST_STORE, JSON.stringify(request));
-  window.location.href = `assets.html${params.toString() ? `?${params}` : ''}`;
-  return { success: true, target: 'assets.html', ...request };
 }
 
 function jarvisCloneOperationData(value) {
@@ -6959,23 +6856,8 @@ async function jarvisExecuteTool(name, args, executionContext = {}) {
       });
     }
 
-    case 'search_code_assets': {
-      const search = jarvisSearchCodeAssets(args);
-      if (args.open) {
-        jarvisOpenCodeAssets({
-          query: args.query,
-          category: search.category,
-          asset_id: search.results[0]?.id || ''
-        });
-      }
-      return search;
-    }
-
     case 'web_search':
       return jarvisWebSearch(args);
-
-    case 'open_code_assets':
-      return jarvisOpenCodeAssets(args);
 
     case 'show_choices':
       {
@@ -7350,7 +7232,7 @@ async function jarvisTryLocal(text, { fallback = false } = {}) {
     return { handled: true, response: result.success ? `Marquei **${found.matches[0].title}** como concluída.` : result.error };
   }
 
-  const sectionMap = { dashboard: 'dashboard', inicio: 'dashboard', projetos: 'projects', tarefas: 'tasks', habitos: 'habits', agenda: 'agenda', estudos: 'studies', materias: 'studies', faculdade: 'studies', ideias: 'ideas', metas: 'goals', crm: 'crm', financeiro: 'financial', financas: 'financial', notas: 'notes', jarvis: 'jarvis', configuracoes: 'settings', automacoes: 'settings' };
+  const sectionMap = { dashboard: 'dashboard', inicio: 'dashboard', projetos: 'projects', tarefas: 'tasks', habitos: 'habits', agenda: 'agenda', estudos: 'studies', materias: 'studies', faculdade: 'studies', pessoal: 'habits', canvas: 'canvas', ideias: 'ideas', metas: 'goals', equipe: 'team', crm: 'crm', financeiro: 'financial', financas: 'financial', conhecimento: 'notes', notas: 'notes', documentos: 'prompts', prompts: 'prompts', jarvis: 'jarvis', configuracoes: 'settings', automacoes: 'settings' };
   if (starts(/^(abra|abrir|va para|ir para|mostre a tela|navegue para)\b/)) {
     const target = Object.entries(sectionMap).find(([label]) => normalized.includes(label));
     if (target) { if (target[0] === 'automacoes') openSettings('automations'); else navigateTo(target[1]); return { handled: true, response: `Abri **${target[0] === 'automacoes' ? 'Automações' : sectionMeta[target[1]].label}**.` }; }
@@ -7463,8 +7345,7 @@ async function jarvisCallGroq(messages, experience = {}, signal = jarvisAbortCon
 
 Secao atual do usuario no Hub: ${sectionMeta[S.section]?.label || S.section}.
 Responda ou execute diretamente como padrao. Nao use show_choices para planejamento, brainstorming, proximos passos ou para perguntar como o usuario quer comecar. Use somente quando o contexto cognitivo abaixo disser explicitamente que escolhas estao permitidas. As opcoes devem ser decisoes concretas, nunca frases como "vamos explorar", "vamos comecar" ou "continuar".`
-      + `
-Para pedidos sobre componentes, snippets, botoes, inputs, cards, loaders, animacoes ou landing pages, use search_code_assets. Quando fizer sentido, ofereca abrir a biblioteca filtrada com open_code_assets.${jarvisBuildCognitivePrompt(experience)}`
+      + jarvisBuildCognitivePrompt(experience)
     }, ...cleanMessages],
     tools: JARVIS_TOOLS,
     tool_choice: 'auto',

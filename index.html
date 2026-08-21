@@ -70,9 +70,9 @@
     </div>
 
     <nav class="sidebar-nav">
-      <div class="nav-label">Principal</div>
+      <div class="nav-label">Workspace</div>
       <a class="nav-item active" data-section="dashboard">
-        <i class='bx bxs-dashboard'></i><span>Dashboard</span>
+        <i class='bx bxs-dashboard'></i><span>Início</span>
       </a>
       <a class="nav-item" data-section="projects">
         <i class='bx bx-folder-open'></i><span>Projetos</span>
@@ -80,61 +80,39 @@
       <a class="nav-item" data-section="tasks">
         <i class='bx bx-check-square'></i><span>Tarefas</span>
       </a>
-      <a class="nav-item" data-section="team">
-        <i class='bx bx-group'></i><span>Equipe</span>
-      </a>
-      <a class="nav-item" data-section="habits">
-        <i class='bx bx-calendar-check'></i><span>Hábitos</span>
-      </a>
       <a class="nav-item" data-section="agenda">
         <i class='bx bx-calendar'></i><span>Agenda</span>
       </a>
-      <a class="nav-item" data-section="studies">
-        <i class='bx bx-book-open'></i><span>Estudos</span>
-      </a>
-      <a class="nav-item" data-section="jarvis">
-        <i class='bx bx-bot'></i><span>Jarvis</span>
-      </a>
-      <a class="nav-item" data-section="canvas">
-        <i class='bx bx-vector'></i><span>Canvas</span>
-      </a>
-      <div class="nav-divider"></div>
-      <div class="nav-label">Estratégia</div>
-      <a class="nav-item" data-section="ideas">
-        <i class='bx bx-bulb'></i><span>Ideias</span>
-      </a>
-      <a class="nav-item" data-section="goals">
-        <i class='bx bx-target-lock'></i><span>Metas & OKRs</span>
+      <a class="nav-item" data-section="notes">
+        <i class='bx bx-book-content'></i><span>Conhecimento</span>
       </a>
       <a class="nav-item" data-section="crm">
         <i class='bx bx-user-circle'></i><span>CRM</span>
       </a>
-      <a class="nav-item nav-external" href="growth.html">
-        <i class='bx bx-line-chart'></i><span>Growth Hub</span>
-      </a>
-      <a class="nav-item nav-external" href="assets.html">
-        <i class='bx bx-code-curly'></i><span>Code Assets</span>
-      </a>
-      <div class="nav-divider"></div>
-      <div class="nav-label">Gestão</div>
-      <a class="nav-item" data-section="settings">
-        <i class='bx bx-cog'></i><span>Configurações</span>
-      </a>
       <a class="nav-item" data-section="financial">
         <i class='bx bx-dollar-circle'></i><span>Financeiro</span>
       </a>
-      <a class="nav-item" data-section="review">
-        <i class='bx bx-notepad'></i><span>Revisão Semanal</span>
+      <a class="nav-item" data-section="jarvis">
+        <i class='bx bx-bot'></i><span>Jarvis</span>
       </a>
-      <a class="nav-item" data-section="prompts">
-        <i class='bx bx-file-blank'></i><span>Prompts & Docs</span>
-      </a>
-      <a class="nav-item" data-section="notes">
-        <i class='bx bx-notepad'></i><span>Notas</span>
-      </a>
+
+      <div class="nav-divider"></div>
+      <details class="nav-personal" id="personalNav">
+        <summary class="nav-item nav-personal-toggle">
+          <i class='bx bx-user'></i><span>Pessoal</span><i class='bx bx-chevron-down nav-personal-chevron'></i>
+        </summary>
+        <div class="nav-personal-items">
+          <a class="nav-item" data-section="habits"><i class='bx bx-calendar-check'></i><span>Hábitos</span></a>
+          <a class="nav-item" data-section="studies"><i class='bx bx-book-open'></i><span>Estudos</span></a>
+          <a class="nav-item" data-section="canvas"><i class='bx bx-vector'></i><span>Canvas</span></a>
+        </div>
+      </details>
     </nav>
 
     <div class="sidebar-footer">
+      <a class="nav-item sidebar-settings" data-section="settings">
+        <i class='bx bx-cog'></i><span>Configurações</span>
+      </a>
       <div class="user-card" id="userCard" role="button" tabindex="0" aria-label="Abrir configurações do perfil">
         <div class="user-avatar" id="sidebarUserAvatar">V</div>
         <div class="user-info">
@@ -194,6 +172,11 @@
 
       <!-- ==================== DASHBOARD ==================== -->
       <section class="page active" id="section-dashboard">
+        <nav class="section-switcher" aria-label="Visões do início">
+          <button class="active" type="button" data-section="dashboard"><i class='bx bx-home-alt-2'></i> Visão geral</button>
+          <button type="button" data-section="ideas"><i class='bx bx-bulb'></i> Ideias</button>
+          <button type="button" data-section="review"><i class='bx bx-calendar-week'></i> Revisão semanal</button>
+        </nav>
         <div class="welcome-block">
           <div class="welcome-left">
             <h1 class="welcome-title">Bem-vindo ao Motion Hub</h1>
@@ -232,7 +215,10 @@
                   <h3 class="panel-title">Inbox Universal</h3>
                   <p class="panel-subtitle">Capture tudo primeiro. Organize quando fizer sentido.</p>
                 </div>
-                <button class="panel-action" type="button" onclick="openInboxCapture()"><i class='bx bx-plus'></i> Capturar</button>
+                <div class="panel-head-tools">
+                  <button class="panel-action" type="button" data-section="ideas"><i class='bx bx-bulb'></i> Banco de ideias</button>
+                  <button class="panel-action" type="button" onclick="openInboxCapture()"><i class='bx bx-plus'></i> Capturar</button>
+                </div>
               </div>
               <div id="inboxList"></div>
             </div>
@@ -277,6 +263,10 @@
 
       <!-- ==================== PROJECTS ==================== -->
       <section class="page" id="section-projects">
+        <nav class="section-switcher" aria-label="Visões de projetos">
+          <button class="active" type="button" data-section="projects"><i class='bx bx-folder-open'></i> Projetos</button>
+          <button type="button" data-section="goals"><i class='bx bx-target-lock'></i> Metas & OKRs</button>
+        </nav>
         <div class="filter-bar">
           <button class="ftab active" data-filter="all">Todos</button>
           <button class="ftab" data-filter="Ideia">Ideia</button>
@@ -291,7 +281,7 @@
       <!-- ==================== TASKS ==================== -->
       <section class="page" id="section-tasks">
         <div class="task-summary" id="taskSummary"></div>
-        <div class="task-list-panel">
+        <div class="task-list-panel" id="taskListPanel">
           <div class="task-list-toolbar">
             <div class="task-list-filters" id="taskListFilters">
               <button class="task-filter active" type="button" data-filter="all">Todas <span id="ct-all">0</span></button>
@@ -300,9 +290,16 @@
               <button class="task-filter" type="button" data-filter="inprogress">Em andamento <span id="ct-inprogress">0</span></button>
               <button class="task-filter" type="button" data-filter="done">Concluídas <span id="ct-done">0</span></button>
             </div>
-            <button class="task-inline-add" type="button" onclick="newTask()"><i class='bx bx-plus'></i> Adicionar tarefa</button>
+            <div class="task-toolbar-actions">
+              <div class="task-view-switcher" aria-label="Visualização das tarefas">
+                <button class="active" type="button" data-task-view="list" onclick="setTaskView('list')"><i class='bx bx-list-ul'></i><span>Lista</span></button>
+                <button type="button" data-task-view="kanban" onclick="setTaskView('kanban')"><i class='bx bx-columns'></i><span>Kanban</span></button>
+                <button type="button" data-section="agenda"><i class='bx bx-calendar'></i><span>Calendário</span></button>
+              </div>
+              <button class="task-inline-add" type="button" onclick="newTask()"><i class='bx bx-plus'></i> Adicionar tarefa</button>
+            </div>
           </div>
-          <div class="task-list-head" aria-hidden="true">
+          <div class="task-list-head" id="taskListHead" aria-hidden="true">
             <span>Tarefa</span><span>Projeto</span><span>Prazo</span><span>Prioridade</span><span>Status</span><span></span>
           </div>
           <div class="task-list" id="taskList"></div>
@@ -311,6 +308,11 @@
 
       <!-- ==================== IDEAS ==================== -->
       <section class="page" id="section-ideas">
+        <nav class="section-switcher" aria-label="Visões do início">
+          <button type="button" data-section="dashboard"><i class='bx bx-home-alt-2'></i> Visão geral</button>
+          <button class="active" type="button" data-section="ideas"><i class='bx bx-bulb'></i> Ideias</button>
+          <button type="button" data-section="review"><i class='bx bx-calendar-week'></i> Revisão semanal</button>
+        </nav>
         <div class="grid-3" id="ideasGrid"></div>
       </section>
 
@@ -339,6 +341,10 @@
 
       <!-- ==================== PROMPTS ==================== -->
       <section class="page" id="section-prompts">
+        <nav class="section-switcher" aria-label="Visões de conhecimento">
+          <button type="button" data-section="notes"><i class='bx bx-notepad'></i> Notas</button>
+          <button class="active" type="button" data-section="prompts"><i class='bx bx-file-blank'></i> Prompts & Docs</button>
+        </nav>
         <div class="filter-bar">
           <button class="ftab active" data-filter="all">Todos</button>
           <button class="ftab" data-filter="Prompt">Prompt</button>
@@ -369,16 +375,29 @@
 
       <!-- ==================== GOALS / OKRs ==================== -->
       <section class="page" id="section-goals">
+        <nav class="section-switcher" aria-label="Visões de projetos">
+          <button type="button" data-section="projects"><i class='bx bx-folder-open'></i> Projetos</button>
+          <button class="active" type="button" data-section="goals"><i class='bx bx-target-lock'></i> Metas & OKRs</button>
+        </nav>
         <div class="goals-grid" id="goalsGrid"></div>
       </section>
 
       <!-- ==================== REVIEW ==================== -->
       <section class="page" id="section-review">
+        <nav class="section-switcher" aria-label="Visões do início">
+          <button type="button" data-section="dashboard"><i class='bx bx-home-alt-2'></i> Visão geral</button>
+          <button type="button" data-section="ideas"><i class='bx bx-bulb'></i> Ideias</button>
+          <button class="active" type="button" data-section="review"><i class='bx bx-calendar-week'></i> Revisão semanal</button>
+        </nav>
         <div class="review-grid" id="reviewList"></div>
       </section>
 
       <!-- ==================== NOTES ==================== -->
       <section class="page" id="section-notes">
+        <nav class="section-switcher" aria-label="Visões de conhecimento">
+          <button class="active" type="button" data-section="notes"><i class='bx bx-notepad'></i> Notas</button>
+          <button type="button" data-section="prompts"><i class='bx bx-file-blank'></i> Prompts & Docs</button>
+        </nav>
         <div class="notes-layout">
           <div class="notes-sidebar">
             <div class="notes-sb-head">
@@ -473,6 +492,7 @@
         <div class="settings-layout">
           <nav class="settings-tabs" id="settingsTabs" aria-label="Seções das configurações">
             <button class="settings-tab active" type="button" data-settings-tab="profile"><i class='bx bx-user'></i><span>Perfil</span></button>
+            <button class="settings-tab" type="button" data-section="team"><i class='bx bx-group'></i><span>Equipe</span></button>
             <button class="settings-tab" type="button" data-settings-tab="appearance"><i class='bx bx-palette'></i><span>Aparência</span></button>
             <button class="settings-tab" type="button" data-settings-tab="notifications"><i class='bx bx-bell'></i><span>Notificações</span></button>
             <button class="settings-tab" type="button" data-settings-tab="automations"><i class='bx bx-git-branch'></i><span>Automações</span></button>
@@ -676,6 +696,10 @@
 
       <!-- ==================== TEAM ==================== -->
       <section class="page" id="section-team">
+        <nav class="section-switcher" aria-label="Gestão do workspace">
+          <button type="button" data-section="settings"><i class='bx bx-cog'></i> Configurações</button>
+          <button class="active" type="button" data-section="team"><i class='bx bx-group'></i> Equipe</button>
+        </nav>
         <div class="team-hero">
           <div>
             <span class="team-eyebrow">Pessoas + inteligência operacional</span>
